@@ -183,11 +183,14 @@ struct AppEditorSheet: View {
             HStack(spacing: 10) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Label("Photos", systemImage: "photo.on.rectangle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.primary)
+                        .font(T.sans(13, .semibold))
+                        .foregroundColor(T.ink)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        // Same glass surface as the Files button beside it —
+                        // a bare material here made the pair render as two
+                        // different kinds of control.
+                        .glassSurface(.button, cornerRadius: 14)
                 }
                 .buttonStyle(GlassTactileButtonStyle())
 

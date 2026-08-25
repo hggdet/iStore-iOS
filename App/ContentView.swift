@@ -40,7 +40,6 @@ struct ContentView: View {
     @State private var appVersion = ""
     @State private var selectedIconURL: URL?
     @State private var showShare = false
-    @State private var showSources = false
     @State private var showLibrary = false
 
     var body: some View {
@@ -106,10 +105,6 @@ struct ContentView: View {
                 }
                 .sheet(isPresented: $showShare) {
                     if let signedIPA { ShareSheet(items: [signedIPA]) }
-                }
-                .sheet(isPresented: $showSources) {
-                    SourcesView()
-                        .liquidGlassSheet()
                 }
                 .sheet(isPresented: $showAppEditor) {
                     AppEditorSheet(appName: $appDisplayName,
@@ -506,9 +501,6 @@ struct ContentView: View {
         VStack(spacing: 14) {
             automaticInstallStatus
 
-            GlassSecondaryButton(label: localized("Sources", "المصادر"), systemImage: "square.stack.3d.up") {
-                showSources = true
-            }
             GlassSecondaryButton(label: localized("Library", "المكتبة"), systemImage: "clock.arrow.circlepath") {
                 showLibrary = true
             }
@@ -809,7 +801,9 @@ struct ContentView: View {
             do {
                 let (downloadedURL, response) = try await URLSession.shared.download(from: url)
                 guard (response as? HTTPURLResponse)?.statusCode ?? 200 < 400 else { return }
-                stageIPA(downloadedURL)
+                // URLSession's temporary file is ours; move it instead of
+                // copying so a 400 MB import costs no extra pass over the data.
+                stageIPA(downloadedURL, takeOwnership: true)
             } catch {
                 preflightState = .failed("Could not download the IPA from this URL.")
             }
@@ -820,10 +814,12 @@ struct ContentView: View {
 
     private func stageIPA(_ source: URL,
                           fallbackToSource: Bool = false,
-                          alreadyStaged: Bool = false) {
+                          alreadyStaged: Bool = false,
+                          takeOwnership: Bool = false) {
         let localURL = alreadyStaged
             ? source
-            : (signer.stage(source) ?? (fallbackToSource ? source : nil))
+            : (signer.stage(source, takeOwnership: takeOwnership)
+               ?? (fallbackToSource ? source : nil))
         guard let localURL else {
             ipaURL = nil
             preflightState = .failed("The IPA could not be copied into iStore storage.")
@@ -991,41 +987,17 @@ struct ContentView: View {
         let shouldInstall = installAfter
 
         Task.detached(priority: .userInitiated) {
-            let signingIPA: URL
-            var preparedIPA: URL?
-            if let selectedDylib {
-                let prepared = tempDir.appendingPathComponent("fs-injected-\(UUID().uuidString).ipa")
-                switch DylibInjectionService.prepare(ipa: ipa,
-                                                      dylib: selectedDylib,
-                                                      output: prepared,
-                                                      temporaryDirectory: tempDir,
-                                                      injectIntoExtensions: injectExt) {
-                case .success:
-                    signingIPA = prepared
-                    preparedIPA = prepared
-                case .failure(let error):
-                    await MainActor.run {
-                        repoStore.completeInstallAttempt(automaticInstallAppID, error: error.localizedDescription)
-                        automaticInstallAppID = nil
-                        automaticInstallAsAdditionalCopy = false
-                        signer.phase = .failed(error.localizedDescription)
-                    }
-                    return
-                }
-            } else {
-                signingIPA = ipa
-            }
-
-            let result = await SigningService.sign(ipa: signingIPA, p12: p12, password: pw, profile: profileFile,
+            // The dylib is now injected inside the signing pass itself, so the
+            // IPA is extracted and repacked once instead of twice.
+            let result = SigningService.signCached(ipa: ipa, p12: p12, password: pw, profile: profileFile,
                                              bundleId: bid,
                                              displayName: appDisplayName.trimmingCharacters(in: .whitespacesAndNewlines),
                                              shortVersion: appVersion.trimmingCharacters(in: .whitespacesAndNewlines),
                                              icon: selectedIconURL,
                                              output: output, tempDir: tempDir,
-                                             removeExtensions: rmExt, enableDocuments: enDocs)
-            if let preparedIPA {
-                try? FileManager.default.removeItem(at: preparedIPA)
-            }
+                                             removeExtensions: rmExt, enableDocuments: enDocs,
+                                             dylib: selectedDylib, injectIntoExtensions: injectExt)
+            SigningService.trimCache()
             await MainActor.run {
                 let signedFileIsValid: Bool = {
                     guard result.ok,

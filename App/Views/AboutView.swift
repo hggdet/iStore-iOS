@@ -1,6 +1,9 @@
 import SwiftUI
 import UIKit
 
+/// About tab — restyled to match Ceresify's own Settings page: a page
+/// header, then grouped "eyebrow + list-card" sections (`GlassSection`)
+/// instead of the previous free-form cards.
 struct AboutView: View {
     @Environment(\.forgeTheme) private var T
     @Environment(\.openURL) private var openURL
@@ -14,9 +17,19 @@ struct AboutView: View {
         NavigationStack {
             ZStack {
                 ScrollView {
-                    VStack(spacing: 16) {
-                        aboutInfoCard
-                        contactSettingsCard
+                    VStack(spacing: 0) {
+                        header
+                        GlassSection(localized("Preferences", "التفضيلات")) {
+                            languageRow(.arabic, label: "العربية")
+                            GlassRowDivider()
+                            languageRow(.english, label: "English")
+                        }
+                        GlassSection(localized("Connect with us", "تواصل معنا")) {
+                            linkRow(title: localized("Telegram", "تيليجرام"), icon: "paperplane.fill", brandAsset: nil, url: telegramURL)
+                            GlassRowDivider()
+                            linkRow(title: "TikTok", icon: nil, brandAsset: "TikTokLogo", url: tiktokURL)
+                        }
+                        developerCredit
                     }
                     .padding(.top, 32)
                     .padding(.bottom, 40)
@@ -29,104 +42,63 @@ struct AboutView: View {
         }
     }
 
-    private var aboutInfoCard: some View {
-        VStack(spacing: 0) {
+    private var header: some View {
+        VStack(spacing: 8) {
             Image("iStoreIcon")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 78, height: 78)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
-                .padding(.bottom, 14)
+                .padding(.bottom, 6)
 
             Text("iStore")
                 .font(T.display(28))
                 .foregroundColor(T.ink)
-                .multilineTextAlignment(.center)
 
-            VStack(spacing: 5) {
-                Text("Developer")
-                    .font(T.sans(15, .medium))
-                    .foregroundColor(T.ink2)
-
-                Text(LocalizedStringKey(developerName))
-                    .font(T.sans(19, .semibold))
-                    .foregroundColor(T.ink)
-            }
-            .padding(.top, 18)
-
-            shortDivider
-                .padding(.top, 20)
-
-            Text("A specialized tool for signing and installing IPA apps directly on your device")
-                .font(T.sans(14, .regular))
+            Text(localized(
+                "A specialized tool for signing and installing IPA apps directly on your device",
+                "أداة متخصصة لتوقيع وتثبيت تطبيقات IPA مباشرة على جهازك"
+            ))
+                .font(T.sans(13, .regular))
                 .foregroundColor(T.ink2)
                 .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
+                .lineSpacing(2)
+                .padding(.horizontal, 36)
+                .padding(.top, 2)
         }
-        .cardSurface
+        .frame(maxWidth: .infinity)
     }
 
-    private var contactSettingsCard: some View {
-        VStack(spacing: 0) {
-            Text("Contact Developer")
-                .font(T.sans(16, .semibold))
-                .foregroundColor(T.ink)
-
-            HStack(spacing: 12) {
-                socialButton(title: "Telegram", icon: "paperplane.fill", brandAsset: nil, url: telegramURL)
-                socialButton(title: "TikTok", icon: nil, brandAsset: "TikTokLogo", url: tiktokURL)
-            }
-            .padding(.top, 14)
-
-            Menu {
-                Button("English") {
-                    languageCode = AppLanguage.english.rawValue
-                    UserDefaults.standard.set(true, forKey: "app.language.userSelected")
-                }
-                Button("Arabic") {
-                    languageCode = AppLanguage.arabic.rawValue
-                    UserDefaults.standard.set(true, forKey: "app.language.userSelected")
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "globe")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Language")
-                        .font(T.sans(13.5, .semibold))
-                    Spacer()
-                    Text(languageCode == AppLanguage.arabic.rawValue
-                         ? LocalizedStringKey("Arabic")
-                         : LocalizedStringKey("English"))
-                        .font(T.sans(12.5, .medium))
-                }
-                .foregroundColor(T.ink)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .glassSurface(.button, cornerRadius: 15)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .stroke(T.rule, lineWidth: AppStroke.hairline)
+    private func languageRow(_ lang: AppLanguage, label: String) -> some View {
+        let isActive = languageCode == lang.rawValue
+        return Button {
+            let haptic = UIImpactFeedbackGenerator(style: .light)
+            haptic.prepare()
+            haptic.impactOccurred()
+            languageCode = lang.rawValue
+            UserDefaults.standard.set(true, forKey: "app.language.userSelected")
+        } label: {
+            HStack(spacing: 13) {
+                rowIcon("globe")
+                Text(label)
+                    .font(T.sans(15, .medium))
+                    .foregroundColor(T.ink)
+                Spacer(minLength: 8)
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(T.accent)
                 }
             }
-            .buttonStyle(GlassTactileButtonStyle())
-            .padding(.top, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
-        .cardSurface
+        .buttonStyle(GlassTactileButtonStyle())
     }
 
-    private var shortDivider: some View {
-        Rectangle()
-            .fill(T.rule)
-            .frame(height: 1)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 22)
-    }
-
-    private func socialButton(title: String, icon: String?, brandAsset: String?, url: String) -> some View {
+    private func linkRow(title: String, icon: String?, brandAsset: String?, url: String) -> some View {
         Button {
             let haptic = UIImpactFeedbackGenerator(style: .light)
             haptic.prepare()
@@ -134,45 +106,69 @@ struct AboutView: View {
             guard let destination = URL(string: url) else { return }
             openURL(destination)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 13) {
                 if let brandAsset {
-                    Image(brandAsset)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
+                    rowIconImage(brandAsset)
                 } else if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 15, weight: .semibold))
+                    rowIcon(icon)
                 }
                 Text(LocalizedStringKey(title))
-                    .font(T.sans(13.5, .semibold))
+                    .font(T.sans(15, .medium))
+                    .foregroundColor(T.ink)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(T.ink3)
             }
-            .foregroundColor(T.ink)
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .fClearGlass(
-                in: RoundedRectangle(cornerRadius: 15, style: .continuous),
-                interactive: true,
-                showRim: false,
-                useRegularInteractiveGlass: true
-            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
         .buttonStyle(GlassTactileButtonStyle())
     }
-}
 
-private extension View {
-    var cardSurface: some View {
-        self
-            .padding(.horizontal, 18)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity)
-            .glassSurface(.card, cornerRadius: 22)
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: AppStroke.hairline)
+    private func rowIcon(_ systemName: String) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(T.accentSoft)
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(T.accent2)
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    private func rowIconImage(_ assetName: String) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(T.accentSoft)
+            Image(assetName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    private var developerCredit: some View {
+        Button {
+            guard let destination = URL(string: telegramURL) else { return }
+            openURL(destination)
+        } label: {
+            VStack(spacing: 3) {
+                Text(LocalizedStringKey(developerName))
+                    .font(T.sans(15, .semibold))
+                    .foregroundColor(T.accent)
+                Text(localized("Programming & design", "برمجة وتصميم"))
+                    .font(T.sans(11, .regular))
+                    .foregroundColor(T.ink3)
             }
-            .padding(.horizontal, 16)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 20)
+    }
+
+    private func localized(_ english: String, _ arabic: String) -> String {
+        languageCode == AppLanguage.arabic.rawValue ? arabic : english
     }
 }

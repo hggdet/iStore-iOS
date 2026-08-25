@@ -112,34 +112,134 @@ struct ForgeSignMobileApp: App {
     }
 }
 
-/// Root: Apps + Sign + About tabs, theme injection + Dynamic Type cap.
+/// Root: Home + Apps + Sign + General + About tabs, theme injection and the
+/// Dynamic Type cap.
 /// The ambient glass backdrop is mounted inside each tab's NavigationStack.
+///
+/// A custom bottom bar instead of native `TabView`/`tabItem` chrome: a
+/// floating Liquid Glass bar, inset from both edges the way iOS 26's own tab
+/// bars sit, with App Store behaviour on top of it — outline icons swap to
+/// filled ones on the active tab (no separate indicator dot) with a springy
+/// bounce, and the screen underneath cross-fades rather than cutting
+/// instantly. All four tabs stay mounted the whole time and are just toggled
+/// by opacity/hit-testing.
 private struct ForgeRootView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var history: HistoryStore
     @EnvironmentObject private var installer: InstallController
     @EnvironmentObject private var repositories: RepositoryStore
+    @AppStorage("app.language") private var languageCode = AppLanguage.english.rawValue
     @State private var tab = 0
 
     private var theme: ForgeTheme { colorScheme == .dark ? .dark : .light }
 
+    private struct TabSpec {
+        let icon: String
+        /// App Store-style filled counterpart shown only while the tab is
+        /// active; falls back to `icon` for symbols with no `.fill` variant.
+        let filledIcon: String
+        let english: String
+        let arabic: String
+    }
+
+    private static let tabs: [TabSpec] = [
+        TabSpec(icon: "house", filledIcon: "house.fill", english: "Home", arabic: "الرئيسية"),
+        TabSpec(icon: "square.grid.2x2", filledIcon: "square.grid.2x2.fill", english: "Apps", arabic: "التطبيقات"),
+        TabSpec(icon: "signature", filledIcon: "signature", english: "Sign", arabic: "توقيع"),
+        TabSpec(icon: "globe", filledIcon: "globe", english: "General", arabic: "عام"),
+        TabSpec(icon: "info.circle", filledIcon: "info.circle.fill", english: "About", arabic: "حول")
+    ]
+
     var body: some View {
-        TabView(selection: $tab) {
-            AppsView()
-                .tabItem { Label("Apps", systemImage: "square.grid.2x2") }
-                .tag(0)
+        ZStack(alignment: .bottom) {
+            ZStack {
+                HomeView()
+                    .opacity(tab == 0 ? 1 : 0)
+                    .allowsHitTesting(tab == 0)
+                    .accessibilityHidden(tab != 0)
+                AppsView()
+                    .opacity(tab == 1 ? 1 : 0)
+                    .allowsHitTesting(tab == 1)
+                    .accessibilityHidden(tab != 1)
+                ContentView()
+                    .opacity(tab == 2 ? 1 : 0)
+                    .allowsHitTesting(tab == 2)
+                    .accessibilityHidden(tab != 2)
+                GeneralView()
+                    .opacity(tab == 3 ? 1 : 0)
+                    .allowsHitTesting(tab == 3)
+                    .accessibilityHidden(tab != 3)
+                AboutView()
+                    .opacity(tab == 4 ? 1 : 0)
+                    .allowsHitTesting(tab == 4)
+                    .accessibilityHidden(tab != 4)
+            }
+            // Screens cross-fade into each other instead of cutting instantly.
+            .animation(.easeInOut(duration: 0.22), value: tab)
+            // Reserves the floating bar's height plus its outer padding, so
+            // scroll content comes to rest above the glass instead of ending
+            // up trapped behind it.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: 64)
+            }
 
-            ContentView()
-                .tabItem { Label("Sign", systemImage: "signature") }
-                .tag(1)
-
-            AboutView()
-                .tabItem { Label("About", systemImage: "info.circle") }
-                .tag(2)
+            tabBar
         }
         .tint(theme.accent)
         .forgeTheme(theme)
         .forgeScaledType()
     }
 
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Self.tabs.indices, id: \.self) { index in
+                tabButton(index)
+            }
+        }
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity)
+        // The bar is itself a Liquid Glass surface (`GlassRole.tabBar`) rather
+        // than a flat material with a divider rule: it floats clear of both
+        // edges so the system renders live refraction, edge light and the
+        // interactive highlight against whatever scrolls underneath it.
+        .glassSurface(.tabBar)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    private func tabButton(_ index: Int) -> some View {
+        let spec = Self.tabs[index]
+        let isActive = tab == index
+        let title = languageCode == AppLanguage.arabic.rawValue ? spec.arabic : spec.english
+        return Button {
+            if tab != index {
+                let haptic = UIImpactFeedbackGenerator(style: .light)
+                haptic.prepare()
+                haptic.impactOccurred()
+                // A springy overshoot on the icon plus the outer cross-fade
+                // is what gives switching tabs the App Store's bouncy feel.
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.55)) {
+                    tab = index
+                }
+            }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: isActive ? spec.filledIcon : spec.icon)
+                    .font(.system(size: 21, weight: isActive ? .semibold : .regular))
+                    .frame(height: 22)
+                    .scaleEffect(isActive ? 1.1 : 1.0)
+                Text(title)
+                    // Five tabs instead of four leaves each one narrower, so
+                    // the longest Arabic label ("التطبيقات") needs the smaller
+                    // size and a scale-down rather than truncating.
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(isActive ? theme.accent : theme.ink3)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }

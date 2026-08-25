@@ -5,6 +5,18 @@
 #include "sys/stat.h"
 #include "sys/types.h"
 
+#if defined(_WIN32)
+#define ZSTAT_MTIME_NSEC(st)	(0)
+#elif defined(__APPLE__)
+#define ZSTAT_MTIME_NSEC(st)	((st).st_mtimespec.tv_nsec)
+#else
+#define ZSTAT_MTIME_NSEC(st)	((st).st_mtim.tv_nsec)
+#endif
+
+// Bounds the memoised hash table so a pathological bundle can't grow it without
+// limit. Real apps sit far below this.
+static const size_t s_sMaxSHACacheEntries = 100000;
+
 ZBundle::ZBundle()
 {
 	m_pSignAssets = NULL;
@@ -153,6 +165,47 @@ bool ZBundle::GetObjectsToSign(const string& strFolder, jvalue& jvInfo)
 	return true;
 }
 
+// Every enclosing bundle's CodeResources seals the files of the bundles nested
+// inside it, so a framework-heavy app hashes most of its bytes two or three
+// times over. Memoise by path plus size and modification time.
+//
+// A cached entry cannot go stale: the only files that change after a bundle is
+// sealed are that bundle's own executable and its _CodeSignature/CodeResources,
+// and GenerateCodeResources drops both from the set it hashes for that bundle,
+// so neither is ever in the cache when it is later rewritten. The size/mtime
+// check is belt-and-braces on top of that ordering.
+bool ZBundle::CachedSHABase64File(const string& strFile, string& strSHA1Base64, string& strSHA256Base64)
+{
+	struct stat st = { 0 };
+	bool bStat = (0 == stat(strFile.c_str(), &st));
+
+	if (bStat) {
+		map<string, SHACacheEntry>::const_iterator it = m_mapSHACache.find(strFile);
+		if (it != m_mapSHACache.end() &&
+			it->second.uSize == (uint64_t)st.st_size &&
+			it->second.nMTimeSec == (int64_t)st.st_mtime &&
+			it->second.nMTimeNSec == (int64_t)ZSTAT_MTIME_NSEC(st)) {
+			strSHA1Base64 = it->second.strSHA1Base64;
+			strSHA256Base64 = it->second.strSHA256Base64;
+			return true;
+		}
+	}
+
+	bool bRet = ZSHA::SHABase64File(strFile.c_str(), strSHA1Base64, strSHA256Base64);
+
+	if (bRet && bStat && m_mapSHACache.size() < s_sMaxSHACacheEntries) {
+		SHACacheEntry entry;
+		entry.uSize = (uint64_t)st.st_size;
+		entry.nMTimeSec = (int64_t)st.st_mtime;
+		entry.nMTimeNSec = (int64_t)ZSTAT_MTIME_NSEC(st);
+		entry.strSHA1Base64 = strSHA1Base64;
+		entry.strSHA256Base64 = strSHA256Base64;
+		m_mapSHACache[strFile] = entry;
+	}
+
+	return bRet;
+}
+
 bool ZBundle::GenerateCodeResources(const string& strFolder, jvalue& jvCodeRes)
 {
 	set<string> setFiles;
@@ -192,7 +245,7 @@ bool ZBundle::GenerateCodeResources(const string& strFolder, jvalue& jvCodeRes)
 		string strFile = strFolder + "/" + strKey;
 		string strSHA1Base64;
 		string strSHA256Base64;
-		ZSHA::SHABase64File(strFile.c_str(), strSHA1Base64, strSHA256Base64);
+		CachedSHABase64File(strFile, strSHA1Base64, strSHA256Base64);
 
 #ifdef _WIN32
 		strKey = ic.A2U8(strKey);
@@ -816,6 +869,7 @@ bool ZBundle::SignFolder(ZSignAsset* pSignAsset,
 	m_pSignAsset = pSignAsset;
 	m_bWeakInject = bWeakInject;
 	m_bRemoveProvision = bRemoveProvision;
+	m_mapSHACache.clear();
 	m_setRemoveDylibs.clear();
 	for (const string& name : arrRemoveDylibNames) {
 		if (name.find('/') != string::npos) {

@@ -30,10 +30,45 @@ bool ZSHA::SHA256(const string& strData, string& strOutput)
 	return ZSHA::SHA256((uint8_t*)strData.data(), strData.size(), strOutput);
 }
 
+// Feeds both digests from one walk over the data. Hashing SHA1 and SHA256 in
+// separate passes streams every byte twice, which is a real cost on the
+// multi-hundred-megabyte bundles this signer seals.
+static bool SHADual(const uint8_t* data, size_t size, string& strSHA1, string& strSHA256)
+{
+	strSHA1.clear();
+	strSHA256.clear();
+
+	SHA_CTX ctxSHA1;
+	SHA256_CTX ctxSHA256;
+	if (1 != SHA1_Init(&ctxSHA1) || 1 != SHA256_Init(&ctxSHA256)) {
+		return false;
+	}
+
+	// Chunked so both digests consume the same bytes while they are still in
+	// cache, rather than each sweeping the whole mapping end to end.
+	const size_t sChunk = 1024 * 1024;
+	for (size_t sOffset = 0; sOffset < size; sOffset += sChunk) {
+		size_t sLength = ((size - sOffset) < sChunk) ? (size - sOffset) : sChunk;
+		if (1 != SHA1_Update(&ctxSHA1, data + sOffset, sLength) ||
+			1 != SHA256_Update(&ctxSHA256, data + sOffset, sLength)) {
+			return false;
+		}
+	}
+
+	uint8_t hashSHA1[20];
+	uint8_t hashSHA256[32];
+	if (1 != SHA1_Final(hashSHA1, &ctxSHA1) || 1 != SHA256_Final(hashSHA256, &ctxSHA256)) {
+		return false;
+	}
+
+	strSHA1.append((const char*)hashSHA1, sizeof(hashSHA1));
+	strSHA256.append((const char*)hashSHA256, sizeof(hashSHA256));
+	return true;
+}
+
 bool ZSHA::SHA(const string& strData, string& strSHA1, string& strSHA256)
 {
-	ZSHA::SHA1(strData, strSHA1);
-	ZSHA::SHA256(strData, strSHA256);
+	SHADual((const uint8_t*)strData.data(), strData.size(), strSHA1, strSHA256);
 	return (!strSHA1.empty() && !strSHA256.empty());
 }
 
@@ -60,8 +95,14 @@ bool ZSHA::SHAFile(const char* szFile, string& strSHA1, string& strSHA256)
 	size_t sSize = 0;
 	uint8_t* pBase = (uint8_t*)ZFile::MapFile(szFile, 0, 0, &sSize, true);
 	// pBase may be NULL, but it's ok, because the file may be empty
-	ZSHA::SHA1(pBase, sSize, strSHA1);
-	ZSHA::SHA256(pBase, sSize, strSHA256);
+#ifndef _WIN32
+	if (NULL != pBase && sSize > 0) {
+		// The mapping is read straight through exactly once, so let the kernel
+		// read ahead instead of faulting a page at a time.
+		posix_madvise(pBase, sSize, POSIX_MADV_SEQUENTIAL);
+	}
+#endif
+	SHADual(pBase, sSize, strSHA1, strSHA256);
 	if (NULL != pBase && sSize > 0) {
 		ZFile::UnmapFile(pBase, sSize);
 	}

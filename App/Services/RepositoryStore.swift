@@ -2,8 +2,8 @@ import Foundation
 
 // MARK: - Persisted repository record
 
-/// A user-added app source (AltStore-style). Only the URL + a display name are
-/// persisted; the fetched catalog is kept in memory and re-fetched on demand.
+/// An app source (AltStore-style catalog). iStore is locked to a single,
+/// fixed Ceresify repository — see `RepositoryStore.ceresifyRepository`.
 struct Repository: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let url: URL
@@ -28,6 +28,13 @@ struct RepoSource: Codable, Equatable, Sendable {
     let identifier: String?
     let iconURL: URL?
     let apps: [RepoApp]
+
+    init(name: String?, identifier: String?, iconURL: URL?, apps: [RepoApp]) {
+        self.name = name
+        self.identifier = identifier
+        self.iconURL = iconURL
+        self.apps = apps
+    }
 
     private enum CodingKeys: String, CodingKey { case name, identifier, iconURL, apps }
 
@@ -55,24 +62,37 @@ struct RepoVersion: Codable, Equatable, Identifiable, Sendable {
     let version: String?
     let downloadURL: URL?
     let size: Int64?
+    let date: Date?
 
     var id: String {
         "\(version ?? "")|\(downloadURL?.absoluteString ?? "")"
     }
 
-    init(version: String?, downloadURL: URL?, size: Int64?) {
+    init(version: String?, downloadURL: URL?, size: Int64?, date: Date? = nil) {
         self.version = version
         self.downloadURL = downloadURL
         self.size = size
+        self.date = date
     }
 
-    private enum CodingKeys: String, CodingKey { case version, downloadURL, size }
+    private enum CodingKeys: String, CodingKey { case version, downloadURL, size, date }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try? c.decodeIfPresent(String.self, forKey: .version)
         downloadURL = LenientDecode.url(c, .downloadURL)
         size = LenientDecode.int64(c, .size)
+        date = LenientDecode.date(c, .date)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(version, forKey: .version)
+        try c.encodeIfPresent(downloadURL?.absoluteString, forKey: .downloadURL)
+        try c.encodeIfPresent(size, forKey: .size)
+        // Encoded as epoch seconds (not JSONEncoder's default reference-date
+        // seconds) so it round-trips through `LenientDecode.date` unchanged.
+        try c.encodeIfPresent(date?.timeIntervalSince1970, forKey: .date)
     }
 }
 
@@ -92,12 +112,27 @@ struct RepoApp: Codable, Identifiable, Equatable, Sendable {
     let downloadURL: URL?
     let size: Int64?
     let versions: [RepoVersion]
+    /// When this app's current version was published. Falls back to the
+    /// first entry in `versions` when the feed omits the flat field.
+    let lastUpdated: Date?
 
-    var id: String { bundleIdentifier.isEmpty ? name : bundleIdentifier }
+    /// Row identity. Deliberately *not* the bundle id on its own: a single
+    /// bundle id legitimately carries several different builds in this
+    /// catalog — `com.google.ios.youtube` ships as iQTube, YouTube LRD,
+    /// YouTube Sy, YouTube Plus, SAT YouTube and YouTube DLTube, and
+    /// `com.zhiliaoapp.musically` as seven separate TikTok mods. Keying rows
+    /// on the bundle id alone made every one of those variants share a single
+    /// identity, so tapping GET on one spun the loading state on all of them
+    /// and disabled the rest. Folding the name in gives each build its own
+    /// identity while two listings of the genuinely same build still collapse.
+    var id: String {
+        let base = bundleIdentifier.isEmpty ? name : bundleIdentifier
+        return name.isEmpty ? base : "\(base)|\(name)"
+    }
 
     private enum CodingKeys: String, CodingKey {
         case name, bundleIdentifier, developerName, localizedDescription, category
-        case iconURL, urlSchemes, urlScheme, screenshotURLs, screenshots, version, downloadURL, size, versions
+        case iconURL, urlSchemes, urlScheme, screenshotURLs, screenshots, version, downloadURL, size, versions, versionDate
     }
 
     init(from decoder: Decoder) throws {
@@ -139,6 +174,8 @@ struct RepoApp: Codable, Identifiable, Equatable, Sendable {
         version = flatVersion ?? first?.version
         downloadURL = flatURL ?? first?.downloadURL
         size = flatSize ?? first?.size
+        let flatDate = LenientDecode.date(c, .versionDate)
+        lastUpdated = flatDate ?? first?.date
     }
 
     func encode(to encoder: Encoder) throws {
@@ -155,6 +192,7 @@ struct RepoApp: Codable, Identifiable, Equatable, Sendable {
         try c.encodeIfPresent(downloadURL?.absoluteString, forKey: .downloadURL)
         try c.encodeIfPresent(size, forKey: .size)
         try c.encode(versions, forKey: .versions)
+        try c.encodeIfPresent(lastUpdated?.timeIntervalSince1970, forKey: .versionDate)
     }
 }
 
@@ -171,13 +209,92 @@ private enum LenientDecode {
         if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Int64(s) }
         return nil
     }
+
+    // Only ever touched from the single background task that decodes a feed,
+    // never concurrently — safe despite ISO8601DateFormatter not being Sendable.
+    nonisolated(unsafe) private static let isoWithFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    nonisolated(unsafe) private static let isoPlain = ISO8601DateFormatter()
+
+    /// Accepts either an ISO 8601 string from the network feed (with or
+    /// without fractional seconds) or a `timeIntervalSince1970` number, which
+    /// is how this app's own on-disk catalog cache round-trips dates.
+    static func date<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) -> Date? {
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) {
+            return isoWithFraction.date(from: s) ?? isoPlain.date(from: s)
+        }
+        if let n = try? c.decodeIfPresent(Double.self, forKey: key) {
+            return Date(timeIntervalSince1970: n)
+        }
+        return nil
+    }
+}
+
+// MARK: - Category (admin panel controlled)
+
+/// One browsable category exactly as Ceresify's admin panel defines it.
+///
+/// `originalName` is the key `/api/apps/paged?category=` filters on and must
+/// be sent back verbatim — including any emoji prefix, and including the
+/// `custom:<id>` form the panel uses for hand-built categories. `displayName`
+/// is what the panel wants the user to read, which is often the same name
+/// with the emoji stripped or replaced entirely. Showing `originalName` was
+/// what made a renamed category keep its old label in the app.
+struct RepoCategory: Codable, Equatable, Hashable, Identifiable, Sendable {
+    let originalName: String
+    let displayName: String
+    let iconURL: URL?
+
+    var id: String { originalName }
+
+    private enum CodingKeys: String, CodingKey { case originalName, displayName, iconURL }
+
+    init(originalName: String, displayName: String, iconURL: URL?) {
+        self.originalName = originalName
+        self.displayName = displayName
+        self.iconURL = iconURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        originalName = try c.decode(String.self, forKey: .originalName)
+        let decodedDisplay = try? c.decodeIfPresent(String.self, forKey: .displayName)
+        if let name = decodedDisplay ?? nil, !name.isEmpty {
+            displayName = name
+        } else {
+            displayName = originalName
+        }
+        iconURL = LenientDecode.url(c, .iconURL)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(originalName, forKey: .originalName)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encodeIfPresent(iconURL?.absoluteString, forKey: .iconURL)
+    }
+}
+
+// MARK: - Promo banner (admin panel controlled)
+
+/// One promotional banner from the panel's `Banner` collection. The API only
+/// surfaces active ones, already ordered, on every page-1 response.
+struct RepoBanner: Codable, Equatable, Hashable, Identifiable, Sendable {
+    let id: String
+    let imageURL: URL
+    /// Where tapping the banner should go. Optional — a banner may be purely
+    /// decorative, in which case it is shown but not tappable.
+    let linkURL: URL?
 }
 
 // MARK: - Store
 
-/// Remembers added repositories on-device (Application Support), fetches their
-/// AltStore JSON catalogs, and downloads an app's IPA into the container. A
-/// completed download is surfaced via `pendingIPA` for the silent installer to adopt.
+/// Fetches the Ceresify catalog (AltStore-shaped JSON) and downloads an app's
+/// IPA into the container. A completed download is surfaced via `pendingIPA`
+/// for the silent installer to adopt.
 @MainActor
 final class RepositoryStore: ObservableObject {
     @Published private(set) var repositories: [Repository] = []
@@ -186,6 +303,17 @@ final class RepositoryStore: ObservableObject {
     @Published var catalog: [UUID: RepoSource] = [:]
     @Published var fetchError: [UUID: String] = [:]
     @Published var loadingRepoID: UUID?
+
+    /// The categories Ceresify's admin panel wants shown, in its own order.
+    /// Populated as a side effect of `refresh(_:)` — every `/api/apps/paged`
+    /// page-1 response carries the list, already filtered server-side (hidden
+    /// categories are gone) and ranked by `CategoryOverride.order`.
+    @Published private(set) var categories: [RepoCategory] = []
+
+    /// Active promo banners, in the panel's order. Same page-1 side effect as
+    /// `categories`, and cached so the strip is on screen at launch instead of
+    /// popping in once the first refresh lands.
+    @Published private(set) var banners: [RepoBanner] = []
 
     /// Bundle id of the app currently downloading, if any.
     @Published var activeDownloadID: String?
@@ -206,6 +334,8 @@ final class RepositoryStore: ObservableObject {
 
     private let indexURL: URL
     private let cacheURL: URL
+    private let categoryCacheURL: URL
+    private let bannerCacheURL: URL
     private let downloadsDir: URL
     private var installWatchdogTask: Task<Void, Never>?
 
@@ -215,122 +345,344 @@ final class RepositoryStore: ObservableObject {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         indexURL = base.appendingPathComponent("repositories.json")
         cacheURL = base.appendingPathComponent("repository-catalog-cache.json")
+        // Deliberately the pre-existing filename: older builds wrote a bare
+        // [String] here, and `loadCategoryCache` still migrates that shape.
+        categoryCacheURL = base.appendingPathComponent("category-order-cache.json")
+        bannerCacheURL = base.appendingPathComponent("banner-cache.json")
         downloadsDir = base.appendingPathComponent("Downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         installedAppIDs = Set(UserDefaults.standard.stringArray(forKey: "istore.installed-app-ids") ?? [])
         load()
-        seedDefaultRepositories()
+        seedCeresifyRepository()
         Task { @MainActor [weak self] in
             await self?.loadCatalogCache()
+            await self?.loadCategoryCache()
+            await self?.loadBannerCache()
         }
         #if DEBUG
         RepoSource._selfTest()
         #endif
     }
 
-    // MARK: Default sources
+    // MARK: Fixed source
 
-    private func seedDefaultRepositories() {
-        let defaults: [(String, String)] = [
-            ("https://repository.apptesters.org", "AppTesters"),
-            ("https://raw.githubusercontent.com/AbdTench/SwiftSource/refs/heads/main/My%20Source", "Cinemana")
-        ]
-        let migrationKey = "sources.two-only.migrated"
-        if !UserDefaults.standard.bool(forKey: migrationKey) {
-            repositories.removeAll()
-            for (rawURL, name) in defaults {
-                if let url = URL(string: rawURL) {
-                    repositories.append(Repository(url: url, name: name))
-                }
-            }
-            UserDefaults.standard.set(true, forKey: migrationKey)
-            save()
-            return
-        }
-        var changed = false
-        let sourceCountBeforeCleanup = repositories.count
-        repositories.removeAll { repo in
-            repo.name == "FastSign" ||
-            repo.name == "Alan's Gigantic Repo" ||
-            repo.url.absoluteString == "https://fastsign.dev/repo.json"
-        }
-        changed = repositories.count != sourceCountBeforeCleanup
-        for (rawURL, name) in defaults {
-            guard let url = URL(string: rawURL),
-                  !repositories.contains(where: { $0.url == url }) else { continue }
-            repositories.append(Repository(url: url, name: name))
-            changed = true
-        }
-        if changed { save() }
-    }
+    /// The single catalog iStore is locked to. Fixed id/date so the seed is a
+    /// no-op (and the in-memory catalog cache still hits) once already saved.
+    private static let ceresifyRepository = Repository(
+        id: UUID(uuidString: "5B1D7C8A-1CE6-4A00-8000-000000000001")!,
+        url: URL(string: "https://dev.ceresify.com/api/repo.json?ch=check0ver")!,
+        name: "Ceresify",
+        addedAt: Date(timeIntervalSince1970: 0)
+    )
 
-    // MARK: Repo list
-
-    enum AddError: LocalizedError {
-        case invalidURL, duplicate
-        var errorDescription: String? {
-            switch self {
-            case .invalidURL: return "Enter a valid http(s) repository URL."
-            case .duplicate: return "That repository is already added."
-            }
-        }
-    }
-
-    @discardableResult
-    func add(urlString: String) -> Result<Repository, AddError> {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              url.host != nil else {
-            return .failure(.invalidURL)
-        }
-        guard !repositories.contains(where: { $0.url == url }) else {
-            return .failure(.duplicate)
-        }
-        let repo = Repository(url: url, name: url.host ?? trimmed)
-        repositories.append(repo)
-        save()
-        return .success(repo)
-    }
-
-    func remove(_ repo: Repository) {
-        repositories.removeAll { $0.id == repo.id }
-        catalog[repo.id] = nil
-        fetchError[repo.id] = nil
+    private func seedCeresifyRepository() {
+        guard repositories != [Self.ceresifyRepository] else { return }
+        repositories = [Self.ceresifyRepository]
+        catalog = [:]
+        fetchError = [:]
         save()
     }
 
     // MARK: Networking
+    //
+    // `/api/repo.json` (the flat AltStore feed) turned out to silently omit a
+    // handful of apps compared to the admin panel's real count, and carries no
+    // per-app admin ordering. `/api/apps/paged` is the endpoint the panel
+    // itself is built on: an empty `category` returns every active app sorted
+    // newest-first, and a named category returns exactly that category's apps
+    // in the admin's own configured order. Both fetches below page through it
+    // (500/page, page 1 sequentially since it also carries the category
+    // ranking, the rest concurrently).
+
+    // Plain Sendable constants, but the enclosing type is @MainActor, which
+    // isolates static members by default too — nonisolated so the paging
+    // helpers below (also nonisolated, to run their network I/O concurrently)
+    // can read them without hopping back to the main actor.
+    private nonisolated static let pagedAppsBaseURL = "https://dev.ceresify.com/api/apps/paged"
+    private nonisolated static let pagedAppsPageSize = 500
+    /// Safety cap on pages fetched per request — comfortably above the whole
+    /// catalog's current size (~10,400 apps ≈ 21 pages) without an unbounded loop.
+    private nonisolated static let pagedAppsMaxPages = 40
+
+    private struct PagedCatalogPage: Decodable {
+        struct CategoryEntry: Decodable {
+            let originalName: String?
+            let displayName: String?
+            let icon: String?
+        }
+        /// The panel calls these banners; the AltStore-shaped feed carries
+        /// them under `news`, which is why the key does not match the name.
+        struct NewsEntry: Decodable {
+            let identifier: String?
+            let imageURL: String?
+            let url: String?
+        }
+        let apps: [RepoApp]
+        let total: Int
+        let categories: [CategoryEntry]?
+        let news: [NewsEntry]?
+
+        private enum CodingKeys: String, CodingKey { case apps, total, categories, news }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // `[RepoApp]` decoded straight would throw on the first entry the
+            // decoder cannot read — failing the page, then all three retries,
+            // then the whole refresh. One odd record would cost the entire
+            // 10,400-app catalog, so entries are skipped individually here the
+            // same way `RepoSource` already skips them in the flat feed.
+            apps = (try c.decode([FailableApp].self, forKey: .apps)).compactMap(\.value)
+            // `total` stays strict on purpose: it drives how many pages get
+            // fetched, so defaulting a missing one to zero would silently cap
+            // the catalog at a single page instead of failing into a retry.
+            total = try c.decode(Int.self, forKey: .total)
+            categories = try? c.decodeIfPresent([CategoryEntry].self, forKey: .categories)
+            news = try? c.decodeIfPresent([NewsEntry].self, forKey: .news)
+        }
+
+        private struct FailableApp: Decodable {
+            let value: RepoApp?
+            init(from decoder: Decoder) throws { value = try? RepoApp(from: decoder) }
+        }
+    }
+
+    /// A full catalog fetch fires this concurrently for every page (~21 requests
+    /// for the current ~10,400-app catalog); with a plain single attempt, one
+    /// flaky page on a real device's network — a timeout, a dropped connection —
+    /// throws and, via `withThrowingTaskGroup`, discards every other page that
+    /// already succeeded. Retrying transient failures here, per page, is what
+    /// keeps one bad request from turning into "apps missing from the store".
+    private nonisolated static func fetchPagedCatalogPage(category: String, page: Int) async throws -> PagedCatalogPage {
+        var lastError: Error = URLError(.unknown)
+        for attempt in 0..<3 {
+            do {
+                return try await fetchPagedCatalogPageOnce(category: category, page: page)
+            } catch {
+                lastError = error
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 400_000_000 * UInt64(attempt + 1))
+                }
+            }
+        }
+        throw lastError
+    }
+
+    private nonisolated static func fetchPagedCatalogPageOnce(category: String, page: Int) async throws -> PagedCatalogPage {
+        var comps = URLComponents(string: pagedAppsBaseURL)!
+        var items = [
+            URLQueryItem(name: "ch", value: "check0ver"),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "limit", value: String(pagedAppsPageSize))
+        ]
+        if !category.isEmpty {
+            items.append(URLQueryItem(name: "category", value: category))
+        }
+        comps.queryItems = items
+        var req = URLRequest(url: comps.url!)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.timeoutInterval = 60
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try await Task.detached(priority: .utility) {
+            try JSONDecoder().decode(PagedCatalogPage.self, from: data)
+        }.value
+    }
+
+    /// What one catalog fetch yields, for `category` (`""` = the full "All"
+    /// list, sorted newest-first). `categories` — the admin's own ranking —
+    /// and `banners` ride along on the page-1 response regardless of the
+    /// category filter, so they arrive for free with the apps.
+    struct CatalogFetch: Sendable {
+        let apps: [RepoApp]
+        let categories: [RepoCategory]?
+        let banners: [RepoBanner]?
+    }
+
+    /// Fetches every page and returns the whole list in one piece.
+    private nonisolated static func fetchAllPagedApps(category: String) async throws -> CatalogFetch {
+        let (first, remainingPages) = try await fetchFirstPagedApps(category: category)
+        guard !remainingPages.isEmpty else { return first }
+        let rest = await fetchRemainingPagedApps(category: category, pages: remainingPages)
+        return CatalogFetch(apps: first.apps + rest, categories: first.categories, banners: first.banners)
+    }
+
+    /// Page 1, plus the range of further pages the response says exist.
+    ///
+    /// Split out from `fetchAllPagedApps` so a caller can put those first
+    /// apps on screen immediately: the largest category runs to thirteen
+    /// pages, and waiting for the slowest of them left the tab showing
+    /// nothing at all for many seconds — even though the list only ever
+    /// reveals twenty-five rows at a time.
+    private nonisolated static func fetchFirstPagedApps(
+        category: String
+    ) async throws -> (fetch: CatalogFetch, remainingPages: Range<Int>) {
+        let first = try await fetchPagedCatalogPage(category: category, page: 1)
+        // `originalName` is the key the API filters on; `displayName` and
+        // `icon` are what the panel wants shown for it. Entries without an
+        // original name cannot be filtered on, so they are dropped.
+        let categories = first.categories?.compactMap { entry -> RepoCategory? in
+            guard let original = entry.originalName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !original.isEmpty else { return nil }
+            let display = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return RepoCategory(
+                originalName: original,
+                displayName: display.flatMap { $0.isEmpty ? nil : $0 } ?? original,
+                iconURL: entry.icon.flatMap(URL.init(string:))
+            )
+        }
+        // A banner with no usable image is nothing to show, so it is dropped
+        // rather than rendered as an empty slot in the strip.
+        let banners = first.news?.compactMap { entry -> RepoBanner? in
+            guard let raw = entry.imageURL, let image = URL(string: raw) else { return nil }
+            return RepoBanner(
+                id: entry.identifier ?? raw,
+                imageURL: image,
+                linkURL: entry.url.flatMap(URL.init(string:))
+            )
+        }
+
+        let totalPages = first.total > 0
+            ? min(Int((Double(first.total) / Double(pagedAppsPageSize)).rounded(.up)), pagedAppsMaxPages)
+            : 1
+        return (
+            CatalogFetch(apps: first.apps, categories: categories, banners: banners),
+            2 ..< (totalPages + 1)
+        )
+    }
+
+    /// Pages 2…n, fetched concurrently and concatenated back in page order.
+    ///
+    /// A page that still fails after its three retries is skipped rather than
+    /// thrown: these run as one task group, so rethrowing discarded every page
+    /// that had already succeeded — one flaky request out of the thirteen the
+    /// largest category needs would cost the whole tail of the list. Page 1 is
+    /// the one that genuinely matters, and it is fetched separately above.
+    private nonisolated static func fetchRemainingPagedApps(
+        category: String,
+        pages: Range<Int>
+    ) async -> [RepoApp] {
+        guard !pages.isEmpty else { return [] }
+        let collected = await withTaskGroup(of: (Int, [RepoApp]).self) { group -> [Int: [RepoApp]] in
+            for page in pages {
+                group.addTask {
+                    let result = try? await fetchPagedCatalogPage(category: category, page: page)
+                    return (page, result?.apps ?? [])
+                }
+            }
+            var collected: [Int: [RepoApp]] = [:]
+            for await (page, pageApps) in group { collected[page] = pageApps }
+            return collected
+        }
+        return pages.flatMap { collected[$0] ?? [] }
+    }
 
     func refresh(_ repo: Repository) async {
         loadingRepoID = repo.id
         fetchError[repo.id] = nil
         defer { if loadingRepoID == repo.id { loadingRepoID = nil } }
         do {
-            var req = URLRequest(url: repo.url)
-            req.cachePolicy = .reloadIgnoringLocalCacheData
-            req.timeoutInterval = 120
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-                fetchError[repo.id] = "The repository server returned an error."
-                return
-            }
-            let source = try await Task.detached(priority: .utility) {
-                try JSONDecoder().decode(RepoSource.self, from: data)
-            }.value
-            catalog[repo.id] = source
+            let fetched = try await Self.fetchAllPagedApps(category: "")
+            catalog[repo.id] = RepoSource(name: repo.name, identifier: nil, iconURL: nil, apps: fetched.apps)
             saveCatalogCache()
-            // Adopt the source's own display name once we know it.
-            if let name = source.name, !name.isEmpty,
-               let i = repositories.firstIndex(where: { $0.id == repo.id }),
-               repositories[i].name != name {
-                repositories[i].name = name
-                save()
+            if let fetchedCategories = fetched.categories, !fetchedCategories.isEmpty {
+                categories = fetchedCategories
+                saveCategoryCache()
             }
+            // Banners are replaced wholesale, empty included: pulling the last
+            // active banner in the panel has to clear it from the app too.
+            if let fetchedBanners = fetched.banners {
+                banners = fetchedBanners
+                saveBannerCache()
+            }
+            // Per-category lists are snapshots of the same panel data and are
+            // stale once this lands, but they are NOT dropped here: wiping the
+            // category the user is looking at emptied the screen for as long
+            // as its re-fetch took — thirteen pages for the largest one — and
+            // that happens on every foreground past the freshness window, not
+            // just on an explicit pull. The Apps tab calls
+            // `invalidateCategoryApps(keeping:)` instead, which drops the ones
+            // nobody is looking at and re-reads the visible one in place.
         } catch {
             fetchError[repo.id] = error.localizedDescription
         }
+    }
+
+    /// Apps for one category, in the admin panel's own order — populated
+    /// on demand when that category is actually browsed, kept in memory only.
+    @Published private(set) var categoryApps: [String: [RepoApp]] = [:]
+    @Published var categoryAppsError: [String: String] = [:]
+    /// The fetch currently running for each category, so a second caller
+    /// joins it instead of being turned away empty-handed.
+    private var categoryTasks: [String: Task<Void, Never>] = [:]
+
+    /// Drops every cached per-category list except `keeping`, so each one is
+    /// re-read the next time it is opened. The kept category is the one on
+    /// screen: the caller re-reads it in place via `refreshCategoryApps`, so
+    /// its rows stay put instead of blanking out for the length of a fetch.
+    func invalidateCategoryApps(keeping survivor: String?) {
+        if let survivor, let kept = categoryApps[survivor] {
+            categoryApps = [survivor: kept]
+        } else {
+            categoryApps.removeAll()
+        }
+        categoryAppsError.removeAll()
+    }
+
+    /// Loads `category` unless its list is already cached.
+    func loadCategoryApps(_ category: String) async {
+        guard categoryApps[category] == nil else { return }
+        await fetchCategoryApps(category)
+    }
+
+    /// Re-reads `category` even if it is cached, replacing the list in place
+    /// so the category on screen never blanks out mid-fetch.
+    func refreshCategoryApps(_ category: String) async {
+        await fetchCategoryApps(category)
+    }
+
+    /// The single fetch path for a category list.
+    ///
+    /// The network work runs in an unstructured `Task` on purpose. The Apps
+    /// tab starts these from a SwiftUI `.task(id:)` that is cancelled the
+    /// moment the user taps another chip, and a cancelled fetch used to leave
+    /// the category with no list at all — while a concurrent caller that
+    /// found it "already loading" returned instantly and rendered an empty
+    /// list that only a pull-to-refresh could repair. Owning the task here
+    /// means the fetch always runs to completion and fills the cache, and
+    /// every caller awaits the same result.
+    private func fetchCategoryApps(_ category: String) async {
+        if let inFlight = categoryTasks[category] {
+            await inFlight.value
+            return
+        }
+        // Clear a previous failure up front: until this attempt settles the
+        // tab should show its loading state, not the last error.
+        categoryAppsError[category] = nil
+        let task = Task { @MainActor [weak self] in
+            defer { self?.categoryTasks[category] = nil }
+            do {
+                // Publish page 1 the moment it lands so the chip the user just
+                // tapped fills in, then append the rest behind it. Only twenty
+                // five rows are on screen anyway, and the tail of a thirteen
+                // page category is thousands of rows further down.
+                let (first, remainingPages) =
+                    try await RepositoryStore.fetchFirstPagedApps(category: category)
+                self?.categoryApps[category] = first.apps
+                self?.categoryAppsError[category] = nil
+                guard !remainingPages.isEmpty else { return }
+                let rest = await RepositoryStore.fetchRemainingPagedApps(
+                    category: category,
+                    pages: remainingPages
+                )
+                self?.categoryApps[category] = first.apps + rest
+            } catch {
+                self?.categoryAppsError[category] = error.localizedDescription
+            }
+        }
+        categoryTasks[category] = task
+        await task.value
     }
 
     func beginInstallAttempt(_ appID: String) {
@@ -468,6 +820,51 @@ final class RepositoryStore: ObservableObject {
     private func saveCatalogCache() {
         let snapshot = catalog
         let destination = cacheURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: destination, options: .atomic)
+        }
+    }
+
+    private func loadCategoryCache() async {
+        let sourceURL = categoryCacheURL
+        let cached: [RepoCategory]? = await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: sourceURL) else { return nil }
+            if let decoded = try? JSONDecoder().decode([RepoCategory].self, from: data) {
+                return decoded
+            }
+            // Builds before category display names existed cached a bare name
+            // list here. Read it rather than discarding it — the next refresh
+            // replaces it with the panel's real display names anyway.
+            guard let names = try? JSONDecoder().decode([String].self, from: data) else { return nil }
+            return names.map { RepoCategory(originalName: $0, displayName: $0, iconURL: nil) }
+        }.value
+        guard let cached, !cached.isEmpty else { return }
+        categories = cached
+    }
+
+    private func loadBannerCache() async {
+        let sourceURL = bannerCacheURL
+        let cached: [RepoBanner]? = await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: sourceURL) else { return nil }
+            return try? JSONDecoder().decode([RepoBanner].self, from: data)
+        }.value
+        guard let cached, !cached.isEmpty else { return }
+        banners = cached
+    }
+
+    private func saveBannerCache() {
+        let snapshot = banners
+        let destination = bannerCacheURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: destination, options: .atomic)
+        }
+    }
+
+    private func saveCategoryCache() {
+        let snapshot = categories
+        let destination = categoryCacheURL
         Task.detached(priority: .utility) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             try? data.write(to: destination, options: .atomic)

@@ -51,6 +51,18 @@ private:
 
 private:
 	bool GenerateCodeResources(const string& strFolder, jvalue& jvCodeRes);
+	bool CachedSHABase64File(const string& strFile, string& strSHA1Base64, string& strSHA256Base64);
+
+private:
+	struct SHACacheEntry
+	{
+		uint64_t	uSize;
+		int64_t		nMTimeSec;
+		int64_t		nMTimeNSec;
+		string		strSHA1Base64;
+		string		strSHA256Base64;
+	};
+	map<string, SHACacheEntry>	m_mapSHACache;
 
 private:
 	bool			m_bForceSign;
