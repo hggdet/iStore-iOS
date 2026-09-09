@@ -233,7 +233,9 @@ final class RepositoryStore: ObservableObject {
     private func seedDefaultRepositories() {
         let defaults: [(String, String)] = [
             ("https://repository.apptesters.org", "AppTesters"),
-            ("https://raw.githubusercontent.com/AbdTench/SwiftSource/refs/heads/main/My%20Source", "Cinemana")
+            ("https://raw.githubusercontent.com/AbdTench/SwiftSource/refs/heads/main/My%20Source", "Cinemana"),
+            ("https://bit.ly/quantumsource-min", "Quantum Source"),
+            ("https://appstore.sidelix.vip/repos/esign.php", "Sidelix App Store")
         ]
         let migrationKey = "sources.two-only.migrated"
         if !UserDefaults.standard.bool(forKey: migrationKey) {
