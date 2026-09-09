@@ -3,3 +3,6 @@ DerivedData/
 *.xcodeproj/
 xcuserdata/
 .DS_Store
+
+# Local R2 config (do not commit)
+App/Config.swift
