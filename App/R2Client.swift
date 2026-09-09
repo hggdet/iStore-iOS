@@ -42,6 +42,16 @@ final class R2Client: NSObject {
         case cancelled
     }
 
+    // MARK: - Debug logging helper
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[R2Client] \(message)")
+        #else
+        // Keep a lightweight log in non-DEBUG builds as well if needed
+        // Use os_log when more structured logging is desired.
+        #endif
+    }
+
     // MARK: - Public helpers
 
     /// Uploads the file at localURL to R2 using PUT to /<bucket>/<key> with SigV4 Authorization.
@@ -73,20 +83,26 @@ final class R2Client: NSObject {
             throw R2Error.signingError
         }
 
+        debugLog("Starting upload: key=\(objectKey) size=\(data.count) bytes to \(targetURL)")
+
         // Create upload task with delegate to track progress
         return try await withCheckedThrowingContinuation { cont in
             let task = session.uploadTask(with: req, from: data) { [weak self] respData, response, error in
                 if let err = error {
+                    self?.debugLog("Upload error for key=\(objectKey): \(err)")
                     cont.resume(throwing: R2Error.network(err))
                     return
                 }
                 guard let http = response as? HTTPURLResponse else {
+                    self?.debugLog("Upload unexpected response for key=\(objectKey)")
                     cont.resume(throwing: R2Error.badURL)
                     return
                 }
                 if http.statusCode >= 200 && http.statusCode < 300 {
+                    self?.debugLog("Upload succeeded for key=\(objectKey) status=\(http.statusCode)")
                     cont.resume(returning: objectKey)
                 } else {
+                    self?.debugLog("Upload failed for key=\(objectKey) status=\(http.statusCode)")
                     cont.resume(throwing: R2Error.server(http.statusCode, respData))
                 }
                 // remove any progress handler
@@ -149,6 +165,7 @@ final class R2Client: NSObject {
         let qs = canonicalQuery + "&X-Amz-Signature=\(signature)"
         let urlStr = "\(scheme)://\(host)\(canonicalURI)?\(qs)"
         guard let url = URL(string: urlStr) else { throw R2Error.badURL }
+        debugLog("Generated presigned URL for key=\(objectKey) expires=\(Int(expires))s url=\(url)")
         return url
     }
 
@@ -174,26 +191,34 @@ final class R2Client: NSObject {
                 throw R2Error.signingError
             }
 
+            debugLog("Delete attempt \(attempt) for key=\(objectKey) to \(targetURL)")
+
             do {
                 let (data, resp) = try await URLSession.shared.data(for: req)
                 guard let http = resp as? HTTPURLResponse else { throw R2Error.badURL }
+                debugLog("Delete response for key=\(objectKey): status=\(http.statusCode)")
                 if (200...299).contains(http.statusCode) {
+                    debugLog("Delete succeeded for key=\(objectKey)")
                     return
                 }
                 if http.statusCode == 404 {
                     // Already gone; treat as success.
+                    debugLog("Delete: key not found (404) for key=\(objectKey)")
                     return
                 }
                 if (500...599).contains(http.statusCode) {
                     lastError = R2Error.server(http.statusCode, data)
+                    debugLog("Delete server error (will retry): status=\(http.statusCode) for key=\(objectKey)")
                     // retry
                 } else {
                     // 4xx other than 404: likely not retriable
+                    debugLog("Delete failed (non-retriable) for key=\(objectKey) status=\(http.statusCode)")
                     throw R2Error.server(http.statusCode, data)
                 }
             } catch {
                 // Network errors -> retry
                 lastError = error
+                debugLog("Delete network/error for key=\(objectKey): \(error)")
             }
 
             if attempt < maxAttempts {
@@ -201,6 +226,7 @@ final class R2Client: NSObject {
                 let exp = UInt64(1) << UInt64(attempt - 1)
                 let jitter = UInt64.random(in: 0..<(baseDelayNanos / 2))
                 let sleepNanos = min(5_000_000_000, baseDelayNanos * exp + jitter) // cap at 5s
+                debugLog("Delete retry sleeping for \(sleepNanos)ns before next attempt for key=\(objectKey)")
                 try? await Task.sleep(nanoseconds: sleepNanos)
                 continue
             }
@@ -208,8 +234,10 @@ final class R2Client: NSObject {
 
         // If we reach here, all attempts failed
         if let e = lastError as? Error {
+            debugLog("Delete ultimately failed for key=\(objectKey): \(e)")
             throw e
         } else {
+            debugLog("Delete ultimately failed for key=\(objectKey): unknown error")
             throw R2Error.cancelled
         }
     }
@@ -227,6 +255,8 @@ final class R2Client: NSObject {
         comps.queryItems = queryItems
         guard let url = comps.url else { throw R2Error.badURL }
 
+        debugLog("Listing objects with prefix=\(prefix ?? "") at \(url)")
+
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         let now = Date()
@@ -240,10 +270,12 @@ final class R2Client: NSObject {
         do {
             (data, response) = try await URLSession.shared.data(for: req)
         } catch {
+            debugLog("List network error: \(error)")
             throw R2Error.network(error)
         }
         guard let http = response as? HTTPURLResponse else { throw R2Error.badURL }
         if !(200...299).contains(http.statusCode) {
+            debugLog("List failed with status=\(http.statusCode)")
             throw R2Error.server(http.statusCode, data)
         }
         // Parse XML response (ListBucketResult) — simple parser to get Key and LastModified
@@ -269,6 +301,7 @@ final class R2Client: NSObject {
                 }
             }
         }
+        debugLog("List returned \(results.count) items for prefix=\(prefix ?? "")")
         return results
     }
 
