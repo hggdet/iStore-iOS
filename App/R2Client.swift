@@ -105,10 +105,6 @@ final class R2Client: NSObject {
                     self?.debugLog("Upload failed for key=\(objectKey) status=\(http.statusCode)")
                     cont.resume(throwing: R2Error.server(http.statusCode, respData))
                 }
-                // remove any progress handler
-                self?.progressQueue.async {
-                    self?.progressHandlers[task.taskIdentifier] = nil
-                }
             }
             // store progress handler
             progressQueue.async {
@@ -382,6 +378,12 @@ extension R2Client: @preconcurrency URLSessionTaskDelegate {
             if let h = self.progressHandlers[task.taskIdentifier] {
                 DispatchQueue.main.async { h(progress) }
             }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        progressQueue.async { [weak self] in
+            self?.progressHandlers[task.taskIdentifier] = nil
         }
     }
 }
