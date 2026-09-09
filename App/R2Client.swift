@@ -12,6 +12,7 @@ final class R2Client: NSObject {
     private let secretKey: String
     private let bucket: String
     private let region: String
+    private let configurationError: String?
 
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
@@ -23,10 +24,20 @@ final class R2Client: NSObject {
 
     private override init() {
         // Read credentials from generated Config.swift (copy Config.example.swift -> Config.swift)
-        guard let url = URL(string: R2Config.endpoint) else {
-            fatalError("Invalid R2 endpoint in Config")
+        if let url = URL(string: R2Config.endpoint),
+           let scheme = url.scheme,
+           ["http", "https"].contains(scheme.lowercased()),
+           let host = url.host,
+           !host.isEmpty,
+           !R2Config.endpoint.contains("<") {
+            endpoint = url
+            configurationError = nil
+        } else {
+            // Keep initialization nonfatal so a bad/missing build configuration is
+            // reported in the install status instead of terminating the app.
+            endpoint = URL(string: "https://invalid.invalid")!
+            configurationError = "Invalid R2 endpoint configuration."
         }
-        endpoint = url
         accessKey = R2Config.accessKeyId
         secretKey = R2Config.secretAccessKey
         bucket = R2Config.bucket
@@ -35,6 +46,7 @@ final class R2Client: NSObject {
     }
 
     enum R2Error: Error {
+        case configuration(String)
         case network(Error)
         case server(Int, Data?)
         case badURL
@@ -57,8 +69,9 @@ final class R2Client: NSObject {
     /// Uploads the file at localURL to R2 using PUT to /<bucket>/<key> with SigV4 Authorization.
     /// Reports progress (0.0 .. 1.0) via the onProgress closure. Returns the objectKey on success.
     func upload(file localURL: URL, objectKey: String, onProgress: @escaping (Double) -> Void) async throws -> String {
+        if let configurationError { throw R2Error.configuration(configurationError) }
         let targetURL = endpoint.appendingPathComponent("\(bucket)/\(objectKey)")
-        guard var comps = URLComponents(url: targetURL, resolvingAgainstBaseURL: false) else {
+        guard URLComponents(url: targetURL, resolvingAgainstBaseURL: false) != nil else {
             throw R2Error.badURL
         }
         // Build request
@@ -116,6 +129,7 @@ final class R2Client: NSObject {
 
     /// Returns a presigned GET URL valid for `expires` seconds (max ~3600 recommended) for the given object key.
     func presignedGetURL(for objectKey: String, expires: TimeInterval = 60 * 30) throws -> URL {
+        if let configurationError { throw R2Error.configuration(configurationError) }
         // SigV4 presign: build canonical query with X-Amz-Algorithm, X-Amz-Credential, X-Amz-Date, X-Amz-Expires, X-Amz-SignedHeaders
         guard let host = endpoint.host else { throw R2Error.badURL }
         let now = Date()
@@ -167,6 +181,7 @@ final class R2Client: NSObject {
 
     /// Delete object key (with retries and exponential backoff)
     func delete(objectKey: String) async throws {
+        if let configurationError { throw R2Error.configuration(configurationError) }
         let maxAttempts = 4
         let baseDelayNanos: UInt64 = 300_000_000 // 300ms
 
@@ -240,6 +255,7 @@ final class R2Client: NSObject {
 
     /// List objects with optional prefix; returns array of (key, lastModified as Date)
     func list(prefix: String?) async throws -> [(String, Date)] {
+        if let configurationError { throw R2Error.configuration(configurationError) }
         // Use the S3 ListObjectsV2 endpoint: GET /?list-type=2&prefix=...
         guard let host = endpoint.host else { throw R2Error.badURL }
         var comps = URLComponents()
