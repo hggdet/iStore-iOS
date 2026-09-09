@@ -370,7 +370,7 @@ final class R2Client: NSObject {
 }
 
 // MARK: - URLSessionTaskDelegate to capture upload progress
-extension R2Client: @MainActor URLSessionTaskDelegate {
+extension R2Client: @preconcurrency URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
         let progress: Double
         if totalBytesExpectedToSend > 0 {

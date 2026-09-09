@@ -158,8 +158,7 @@ struct ContentView: View {
                     }
                     .liquidGlassSheet()
                 }
-                .onChange(of: install.installStatus) {
-                    let status = install.installStatus
+                .onChange(of: install.installStatus, perform: { status in
                     if status.hasPrefix("Install failed") {
                         if let id = lastRecordID {
                             history.setInstallState(.failed, for: id)
@@ -168,7 +167,7 @@ struct ContentView: View {
                         automaticInstallAppID = nil
                         automaticInstallAsAdditionalCopy = false
                     }
-                }
+                })
                 .task {
                     if let pendingIPA = repoStore.pendingIPA {
                         await receiveDownloadedRepositoryIPA(pendingIPA)
@@ -780,11 +779,6 @@ struct ContentView: View {
                     GlassPrimaryButton(label: "Install on Device", systemImage: "arrow.down.app") {
                         startInstall()
                     }
-                    if install.installServer != nil {
-                        GlassSecondaryButton(label: "Retry via Safari", systemImage: "safari") {
-                            install.openInstallPage()
-                        }
-                    }
                     GlassSecondaryButton(label: "Share / Save signed IPA", systemImage: "square.and.arrow.up") {
                         showShare = true
                     }
@@ -975,8 +969,6 @@ struct ContentView: View {
         signedIPA = nil
         lastRecordID = nil
         install.installStatus = ""
-        install.installServer?.stop()
-        install.installServer = nil
         InstallKeepAlive.shared.stop()
         // Every install attempt gets a fresh output path. Reusing the first
         // signed IPA can make a second install fail after the app was deleted.
