@@ -152,28 +152,65 @@ final class R2Client: NSObject {
         return url
     }
 
-    /// Delete object key
+    /// Delete object key (with retries and exponential backoff)
     func delete(objectKey: String) async throws {
-        let targetURL = endpoint.appendingPathComponent("\(bucket)/\(objectKey)")
-        var req = URLRequest(url: targetURL)
-        req.httpMethod = "DELETE"
-        let now = Date()
-        let iso = iso8601Basic(date: now)
-        req.addValue(iso, forHTTPHeaderField: "x-amz-date")
-        let payloadHash = sha256Hex(string: "")
-        req.addValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
-        let auth = try sign(request: req, payloadHash: payloadHash, date: now, region: region)
-        req.addValue(auth, forHTTPHeaderField: "Authorization")
+        let maxAttempts = 4
+        let baseDelayNanos: UInt64 = 300_000_000 // 300ms
 
-        let (data, resp): (Data, URLResponse)
-        do {
-            (data, resp) = try await URLSession.shared.data(for: req)
-        } catch {
-            throw R2Error.network(error)
+        var lastError: Error?
+        for attempt in 1...maxAttempts {
+            let targetURL = endpoint.appendingPathComponent("\(bucket)/\(objectKey)")
+            var req = URLRequest(url: targetURL)
+            req.httpMethod = "DELETE"
+            let now = Date()
+            let iso = iso8601Basic(date: now)
+            req.addValue(iso, forHTTPHeaderField: "x-amz-date")
+            let payloadHash = sha256Hex(string: "")
+            req.addValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
+            do {
+                let auth = try sign(request: req, payloadHash: payloadHash, date: now, region: region)
+                req.addValue(auth, forHTTPHeaderField: "Authorization")
+            } catch {
+                throw R2Error.signingError
+            }
+
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else { throw R2Error.badURL }
+                if (200...299).contains(http.statusCode) {
+                    return
+                }
+                if http.statusCode == 404 {
+                    // Already gone; treat as success.
+                    return
+                }
+                if (500...599).contains(http.statusCode) {
+                    lastError = R2Error.server(http.statusCode, data)
+                    // retry
+                } else {
+                    // 4xx other than 404: likely not retriable
+                    throw R2Error.server(http.statusCode, data)
+                }
+            } catch {
+                // Network errors -> retry
+                lastError = error
+            }
+
+            if attempt < maxAttempts {
+                // exponential backoff with jitter
+                let exp = UInt64(1) << UInt64(attempt - 1)
+                let jitter = UInt64.random(in: 0..<(baseDelayNanos / 2))
+                let sleepNanos = min(5_000_000_000, baseDelayNanos * exp + jitter) // cap at 5s
+                try? await Task.sleep(nanoseconds: sleepNanos)
+                continue
+            }
         }
-        guard let http = resp as? HTTPURLResponse else { throw R2Error.badURL }
-        if !(200...299).contains(http.statusCode) {
-            throw R2Error.server(http.statusCode, data)
+
+        // If we reach here, all attempts failed
+        if let e = lastError as? Error {
+            throw e
+        } else {
+            throw R2Error.cancelled
         }
     }
 
