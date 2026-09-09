@@ -45,13 +45,35 @@ final class R2Client: NSObject {
         super.init()
     }
 
-    enum R2Error: Error {
+    enum R2Error: Error, LocalizedError {
         case configuration(String)
         case network(Error)
         case server(Int, Data?)
         case badURL
         case signingError
         case cancelled
+
+        var errorDescription: String? {
+            switch self {
+            case .configuration(let message):
+                return message
+            case .network(let error):
+                return "R2 network error: \(error.localizedDescription)"
+            case .server(let status, let data):
+                let body = data.flatMap { String(data: $0, encoding: .utf8) }
+                    ?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let body, !body.isEmpty {
+                    return "R2 server error (HTTP \(status)): \(body)"
+                }
+                return "R2 server error (HTTP \(status))."
+            case .badURL:
+                return "R2 returned an invalid URL."
+            case .signingError:
+                return "R2 request signing failed. Check the R2 credentials and region."
+            case .cancelled:
+                return "R2 request was cancelled."
+            }
+        }
     }
 
     // MARK: - Debug logging helper
