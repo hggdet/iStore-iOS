@@ -1,6 +1,6 @@
 import Foundation
 
-final class CleanupManager {
+final class CleanupManager: @unchecked Sendable {
     static let shared = CleanupManager()
 
     private init() {}

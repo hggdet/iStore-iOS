@@ -158,7 +158,8 @@ struct ContentView: View {
                     }
                     .liquidGlassSheet()
                 }
-                .onChange(of: install.installStatus) { status in
+                .onChange(of: install.installStatus) {
+                    let status = install.installStatus
                     if status.hasPrefix("Install failed") {
                         if let id = lastRecordID {
                             history.setInstallState(.failed, for: id)

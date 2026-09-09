@@ -1,3 +1,6 @@
+import Foundation
+import SwiftUI
+
 @MainActor
 final class InstallController: ObservableObject {
     @Published var installStatus = ""
