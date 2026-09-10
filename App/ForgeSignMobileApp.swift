@@ -140,13 +140,9 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Apps")
                     } icon: {
-                        Image(systemName: "circle")
+                        Image(systemName: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
-                            .overlay {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 8, weight: .semibold))
-                            }
                     }
                     .id(tab == 0)
                 }
@@ -157,13 +153,9 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: "circle")
+                        Image(systemName: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
-                            .overlay {
-                                Image(systemName: "signature")
-                                    .font(.system(size: 9, weight: .semibold))
-                            }
                     }
                     .id(tab == 1)
                 }
@@ -174,13 +166,9 @@ private struct ForgeRootView: View {
                     Label {
                         Text("About")
                     } icon: {
-                        Image(systemName: "circle")
+                        Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
                             .scaleEffect(tab == 2 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
-                            .overlay {
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 9, weight: .semibold))
-                            }
                     }
                     .id(tab == 2)
                 }
