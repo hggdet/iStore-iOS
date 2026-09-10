@@ -154,6 +154,7 @@ private struct ForgeRootView: View {
                         Text("Sign")
                     } icon: {
                         Image(systemName: "signature")
+                            .font(.system(size: 17, weight: tab == 1 ? .bold : .regular))
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
