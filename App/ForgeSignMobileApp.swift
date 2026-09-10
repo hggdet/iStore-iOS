@@ -30,7 +30,7 @@ private enum TabIconImage {
             )
             symbol.withTintColor(selected ? .systemBackground : color, renderingMode: .alwaysOriginal)
                 .draw(in: symbolRect)
-        }.withRenderingMode(.alwaysTemplate)
+        }.withRenderingMode(selected ? .alwaysOriginal : .alwaysTemplate)
     }
 }
 
