@@ -135,11 +135,15 @@ private struct ForgeRootView: View {
                 .tag(0)
 
             ContentView()
-                .tabItem { Label("Sign", systemImage: "signature") }
+                .tabItem {
+                    Label("Sign", systemImage: tab == 1 ? "seal.fill" : "seal")
+                }
                 .tag(1)
 
             AboutView()
-                .tabItem { Label("About", systemImage: "person.crop.circle.badge.questionmark") }
+                .tabItem {
+                    Label("About", systemImage: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                }
                 .tag(2)
         }
         .tint(theme.accent)
