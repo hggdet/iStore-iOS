@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import Dispatch
 
 /// Automatic, silent cleanup manager.
 /// - Runs on launch, on resume, and after IPA delivery.
@@ -45,7 +46,7 @@ final class CleanupManager: @unchecked Sendable {
     /// Runs the same safe cleanup immediately for the user-facing button.
     /// Certificates, provisioning profiles, sources, and the signed library
     /// are intentionally outside the scanned temporary/cache locations.
-    func cleanNow(completion: @escaping () -> Void) {
+    func cleanNow(completion: @escaping @Sendable @MainActor () -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             self.cleanupTempAndCaches(quick: false)
             if let applicationSupport = self.fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
@@ -82,10 +83,8 @@ final class CleanupManager: @unchecked Sendable {
                     if isActive && Date() < deadline {
                         // Transfer is active; reschedule a short check.
                         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10) {
-                            if work.isCancelled { return }
-                            // Re-run the same work item by calling perform(). This is safe and
-                            // intentionally retries until the deadline.
-                            work.perform()
+                            // Retry until the transfer finishes or the deadline passes.
+                            attemptDelete()
                         }
                         return
                     }
@@ -187,7 +186,6 @@ final class CleanupManager: @unchecked Sendable {
                     if item.deletingLastPathComponent() != url { return }
                 }
 
-                let name = item.lastPathComponent.lowercased()
                 let ext = item.pathExtension.lowercased()
 
                 // Delete .ipa files everywhere
