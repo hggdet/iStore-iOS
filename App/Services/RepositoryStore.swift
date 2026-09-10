@@ -186,6 +186,7 @@ final class RepositoryStore: ObservableObject {
     @Published var catalog: [UUID: RepoSource] = [:]
     @Published var fetchError: [UUID: String] = [:]
     @Published var loadingRepoID: UUID?
+    @Published private(set) var catalogCacheLoaded = false
 
     /// Bundle id of the app currently downloading, if any.
     @Published var activeDownloadID: String?
@@ -497,12 +498,14 @@ final class RepositoryStore: ObservableObject {
             guard let data = try? Data(contentsOf: sourceURL) else { return nil }
             return try? JSONDecoder().decode([UUID: RepoSource].self, from: data)
         }.value
-        guard let cached else { return }
-        for repo in repositories {
-            if let source = cached[repo.id] {
-                catalog[repo.id] = source
+        if let cached {
+            for repo in repositories {
+                if let source = cached[repo.id] {
+                    catalog[repo.id] = source
+                }
             }
         }
+        catalogCacheLoaded = true
     }
 
     private func saveCatalogCache() {

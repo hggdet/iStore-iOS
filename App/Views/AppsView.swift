@@ -86,9 +86,13 @@ struct AppsView: View {
                 }
                 .task {
                     guard !didInitialRefresh else { return }
-                    await refreshAll()
+                    while !repositories.catalogCacheLoaded {
+                        try? await Task.sleep(nanoseconds: 20_000_000)
+                    }
                     refreshDisplayedApps()
                     didInitialRefresh = true
+                    await refreshAll()
+                    refreshDisplayedApps()
                 }
                 .refreshable {
                     await refreshAll()
