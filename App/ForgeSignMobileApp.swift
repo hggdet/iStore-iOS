@@ -153,13 +153,9 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
+                        Image(systemName: "signature")
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
-                            .overlay {
-                                Image(systemName: "signature")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
                     }
                     .id(tab == 1)
                 }
