@@ -210,12 +210,14 @@ final class RepositoryStore: ObservableObject {
     private var installWatchdogTask: Task<Void, Never>?
 
     private struct Index: Codable { var repositories: [Repository] = [] }
+    private let repositoriesDefaultsKey = "istore.repositories.index"
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         indexURL = base.appendingPathComponent("repositories.json")
         cacheURL = base.appendingPathComponent("repository-catalog-cache.json")
         downloadsDir = base.appendingPathComponent("Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         installedAppIDs = Set(UserDefaults.standard.stringArray(forKey: "istore.installed-app-ids") ?? [])
         load()
@@ -477,15 +479,24 @@ final class RepositoryStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: indexURL),
-              let index = try? JSONDecoder().decode(Index.self, from: data) else { return }
-        repositories = index.repositories
+        let fileData = try? Data(contentsOf: indexURL)
+        let backupData = UserDefaults.standard.data(forKey: repositoriesDefaultsKey)
+        if let data = fileData, let index = try? JSONDecoder().decode(Index.self, from: data) {
+            repositories = index.repositories
+        } else if let backupData,
+                  let index = try? JSONDecoder().decode(Index.self, from: backupData) {
+            repositories = index.repositories
+        }
     }
 
     private func save() {
         let index = Index(repositories: repositories)
         if let data = try? JSONEncoder().encode(index) {
-            try? data.write(to: indexURL, options: .completeFileProtection)
+            // Keep a small preferences backup as well as the Application Support
+            // file. This prevents user-added sources disappearing when iOS delays
+            // or rejects a protected-file write during app backgrounding/refresh.
+            UserDefaults.standard.set(data, forKey: repositoriesDefaultsKey)
+            try? data.write(to: indexURL, options: [.atomic])
         }
     }
 }
