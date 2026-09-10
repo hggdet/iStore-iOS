@@ -42,6 +42,8 @@ struct ContentView: View {
     @State private var showShare = false
     @State private var showSources = false
     @State private var showLibrary = false
+    @State private var isCleaningFiles = false
+    @State private var cleanupMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -511,6 +513,28 @@ struct ContentView: View {
             }
             GlassSecondaryButton(label: localized("Library", "المكتبة"), systemImage: "clock.arrow.circlepath") {
                 showLibrary = true
+            }
+            GlassSecondaryButton(
+                label: isCleaningFiles
+                    ? localized("Cleaning…", "جارٍ التنظيف…")
+                    : localized("Clean Temporary Files", "تنظيف الملفات المؤقتة"),
+                systemImage: isCleaningFiles ? "hourglass" : "trash.slash"
+            ) {
+                guard !isCleaningFiles else { return }
+                isCleaningFiles = true
+                cleanupMessage = nil
+                CleanupManager.shared.cleanNow { [self] in
+                    isCleaningFiles = false
+                    cleanupMessage = localized("Temporary files cleaned.", "تم تنظيف الملفات المؤقتة.")
+                }
+            }
+            .disabled(isCleaningFiles)
+            if let cleanupMessage {
+                Text(cleanupMessage)
+                    .font(T.mono(10))
+                    .foregroundColor(T.good)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
         }
         .padding(.horizontal, T.pad)

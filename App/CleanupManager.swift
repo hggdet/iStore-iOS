@@ -42,6 +42,21 @@ final class CleanupManager: @unchecked Sendable {
         }
     }
 
+    /// Runs the same safe cleanup immediately for the user-facing button.
+    /// Certificates, provisioning profiles, sources, and the signed library
+    /// are intentionally outside the scanned temporary/cache locations.
+    func cleanNow(completion: @escaping () -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.cleanupTempAndCaches(quick: false)
+            if let applicationSupport = self.fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                self.removeIPAFiles(in: applicationSupport.appendingPathComponent("Downloads", isDirectory: true))
+            }
+            DispatchQueue.main.async {
+                completion()
+            }
+        }
+    }
+
     /// Called when an IPA has been delivered by the local server to the installer.
     /// We mark it and delete it once the install step finishes (app re-activates),
     /// or after a fallback delay.
@@ -148,6 +163,13 @@ final class CleanupManager: @unchecked Sendable {
             scanDirectory(caches, removeOldCaches: true, quick: quick)
         }
         scanDirectory(fileManager.temporaryDirectory, removeOldCaches: false, quick: quick)
+    }
+
+    private func removeIPAFiles(in directory: URL) {
+        guard let items = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for item in items where item.pathExtension.lowercased() == "ipa" {
+            deleteFileIfExists(item)
+        }
     }
 
     /// Scans a directory and removes:
