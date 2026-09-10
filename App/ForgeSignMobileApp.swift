@@ -129,7 +129,7 @@ private struct ForgeRootView: View {
     var body: some View {
         TabView(selection: $tab) {
             AppsView()
-                .tabItem { Label("Apps", systemImage: "square.grid.2x2") }
+                .tabItem { Label("Apps", systemImage: "circle.hexagongrid.fill") }
                 .tag(0)
 
             ContentView()
@@ -137,7 +137,7 @@ private struct ForgeRootView: View {
                 .tag(1)
 
             AboutView()
-                .tabItem { Label("About", systemImage: "info.circle") }
+                .tabItem { Label("About", systemImage: "person.crop.circle.badge.questionmark") }
                 .tag(2)
         }
         .tint(theme.accent)
