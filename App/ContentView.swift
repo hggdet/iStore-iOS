@@ -317,7 +317,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(certStore.selected == nil
                          ? localized("Import Certificate", "استيراد شهادة")
-                         : localized("Certificate", "الشهادة"))
+                         : "Apple Distribution")
                         .font(T.sans(17, .bold))
                         .foregroundColor(T.isDark ? .white : T.ink)
                         .lineLimit(1)
