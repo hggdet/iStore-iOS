@@ -22,8 +22,6 @@ targets:
     platform: iOS
     sources:
       - path: App
-        excludes:
-          - Config.example.swift
       - path: Bridge
       - path: vendor/zsign
         excludes:
@@ -72,8 +70,6 @@ targets:
     platform: iOS
     sources:
       - path: App
-        excludes:
-          - Config.example.swift
     resources:
       - path: App/Resources
     settings:

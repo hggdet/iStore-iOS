@@ -775,12 +775,17 @@ struct ContentView: View {
 
                 GlassRowDivider()
 
-                VStack(spacing: T.gap) {
-                    GlassPrimaryButton(label: "Install on Device", systemImage: "arrow.down.app") {
-                        startInstall()
-                    }
-                    GlassSecondaryButton(label: "Share / Save signed IPA", systemImage: "square.and.arrow.up") {
-                        showShare = true
+	                VStack(spacing: T.gap) {
+	                    GlassPrimaryButton(label: "Install on Device", systemImage: "arrow.down.app") {
+	                        startInstall()
+	                    }
+	                    if install.installServer != nil {
+	                        GlassSecondaryButton(label: "Retry via Safari", systemImage: "safari") {
+	                            install.openInstallPage()
+	                        }
+	                    }
+	                    GlassSecondaryButton(label: "Share / Save signed IPA", systemImage: "square.and.arrow.up") {
+	                        showShare = true
                     }
                 }
                 .padding(16)
@@ -966,10 +971,12 @@ struct ContentView: View {
         let certCN = cert.commonName
 
         signer.phase = .signing
-        signedIPA = nil
-        lastRecordID = nil
-        install.installStatus = ""
-        InstallKeepAlive.shared.stop()
+	        signedIPA = nil
+	        lastRecordID = nil
+	        install.installStatus = ""
+	        install.installServer?.stop()
+	        install.installServer = nil
+	        InstallKeepAlive.shared.stop()
         // Every install attempt gets a fresh output path. Reusing the first
         // signed IPA can make a second install fail after the app was deleted.
         let attemptID = UUID().uuidString.prefix(8)

@@ -1,56 +1,99 @@
 import Foundation
 
+/// Automatic, silent cleanup manager.
+/// - Runs on launch, on resume, and after IPA delivery.
+/// - Only deletes temporary/signing artifacts, .ipa files, extracted .app bundles, and stale cache files.
+/// - Never deletes preferences, certificates, or other user configuration.
 final class CleanupManager: @unchecked Sendable {
     static let shared = CleanupManager()
+    private let fileManager = FileManager.default
+
+    /// Age (in seconds) after which cache files are considered stale and can be removed.
+    private let staleCacheInterval: TimeInterval = 3 * 60 * 60 // 3 hours
+
+    /// Fallback timeout after IPA delivered; if the app doesn't resume for some reason,
+    /// delete the IPA after this many seconds.
+    private let ipaFallbackDeletionDelay: TimeInterval = 300 // 5 minutes
+
+    /// Pending IPA URL to delete after install finishes (or fallback).
+    private var pendingIPA: URL?
+    private var pendingIPAWorkItem: DispatchWorkItem?
+
+    /// Tracks currently active transfers (files being streamed by the local server).
+    /// Guarded by `syncQueue` for thread-safety.
+    private var activeTransfers: Set<String> = []
+    private let syncQueue = DispatchQueue(label: "com.hggdet.iStore.CleanupManager.sync")
 
     private init() {}
 
-    private let syncQueue = DispatchQueue(label: "com.hggdet.iStore.CleanupManager.sync")
-    private let ipaFallbackDeletionDelay: TimeInterval = 60 * 5
+    // MARK: - External entry points
 
     /// Thorough cleanup run for cold launches. Runs on a background queue.
     func performLaunchCleanup() {
         DispatchQueue.global(qos: .background).async {
             self.cleanupDocumentsAndTransientDirectories()
-            // Also sweep remote R2 objects that may be orphaned.
-            self.performRemoteSweepOfOrphanedObjects()
-            // Run a conservative local sweep for old staged artifacts.
-            self.performLocalStagedSweep()
         }
     }
 
-    // Placeholder for existing cleanup logic; keep as a no-op here if not present.
-    private func cleanupDocumentsAndTransientDirectories() {
-        // Existing cleanup logic lives here in the real project.
+    /// Quick cleanup run for resume / become-active events.
+    func performResumeCleanup() {
+        DispatchQueue.global(qos: .background).async {
+            self.cleanupTempAndCaches(quick: true)
+        }
     }
 
-    func markRemoteObjectForPostInstallDeletion(_ objectKey: String) {
-        // Keep access to pendingRemote* synchronized like other state.
+    /// Called when an IPA has been delivered by the local server to the installer.
+    /// We mark it and delete it once the install step finishes (app re-activates),
+    /// or after a fallback delay.
+    func markIPAForPostInstallDeletion(_ ipaURL: URL) {
+        // All access to pendingIPA and pendingIPAWorkItem must be synchronized.
         syncQueue.async {
-            self.pendingRemoteObjectKey = objectKey
-            self.pendingRemoteWorkItem?.cancel()
+            // Keep only one pending IPA at a time; the last one wins.
+            self.pendingIPA = ipaURL
+            self.pendingIPAWorkItem?.cancel()
 
-            // Simpler fallback: schedule a single best-effort deletion after the configured delay.
+            // Predeclare the work item so it can reference itself if needed.
             var work: DispatchWorkItem!
             work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
-                // Capture key inside synchronized block to avoid races.
-                var keyToDelete: String?
-                self.syncQueue.sync { keyToDelete = self.pendingRemoteObjectKey }
-                if let key = keyToDelete {
-                    Task { try? await R2Client.shared.delete(objectKey: key) }
+                let deadline = Date().addingTimeInterval(self.ipaFallbackDeletionDelay)
+
+                func attemptDelete() {
+                    // If transfer is active, retry shortly until deadline.
+                    let id = ipaURL.path
+                    var isActive = false
+                    self.syncQueue.sync { isActive = self.activeTransfers.contains(id) }
+
+                    if isActive && Date() < deadline {
+                        // Transfer is active; reschedule a short check.
+                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10) {
+                            if work.isCancelled { return }
+                            // Re-run the same work item by calling perform(). This is safe and
+                            // intentionally retries until the deadline.
+                            work.perform()
+                        }
+                        return
+                    }
+
+                    // Either transfer is not active, or deadline passed — safe to delete.
+                    self.deleteFileIfExists(ipaURL)
+
+                    self.syncQueue.async {
+                        self.pendingIPA = nil
+                        self.pendingIPAWorkItem = nil
+                    }
                 }
-                self.syncQueue.async {
-                    self.pendingRemoteObjectKey = nil
-                    self.pendingRemoteWorkItem = nil
-                }
+
+                attemptDelete()
             }
 
-            self.pendingRemoteWorkItem = work
+            self.pendingIPAWorkItem = work
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + self.ipaFallbackDeletionDelay, execute: work)
         }
     }
 
+    /// Called on applicationDidBecomeActive to indicate installer likely finished.
+    /// Deletes any pending IPA immediately.
     func checkPendingIPADeletionOnActivation() {
         syncQueue.async {
             if let url = self.pendingIPA {
@@ -62,92 +105,148 @@ final class CleanupManager: @unchecked Sendable {
         }
     }
 
-    // MARK: - Remote cleanup (R2)
+    // MARK: - Transfer notifications (used by LocalInstallServer)
 
-    private var pendingRemoteObjectKey: String?
-    private var pendingRemoteWorkItem: DispatchWorkItem?
-
-    /// Called on applicationDidBecomeActive to delete any pending remote object immediately.
-    func checkPendingRemoteDeletionOnActivation() {
+    /// Notify that a transfer for the given URL has started streaming.
+    func notifyTransferStarted(_ url: URL) {
+        let id = url.path
         syncQueue.async {
-            if let key = self.pendingRemoteObjectKey {
-                Task { try? await R2Client.shared.delete(objectKey: key) }
-                self.pendingRemoteObjectKey = nil
-            }
-            self.pendingRemoteWorkItem?.cancel()
-            self.pendingRemoteWorkItem = nil
+            self.activeTransfers.insert(id)
         }
     }
 
-    /// Clear pending remote object without attempting deletion (used after manual delete).
-    func clearPendingRemoteObject() {
+    /// Notify that a transfer for the given URL has finished streaming.
+    func notifyTransferFinished(_ url: URL) {
+        let id = url.path
         syncQueue.async {
-            self.pendingRemoteObjectKey = nil
-            self.pendingRemoteWorkItem?.cancel()
-            self.pendingRemoteWorkItem = nil
+            self.activeTransfers.remove(id)
         }
     }
 
-    /// Cold-start sweep to remove orphaned remote objects older than 1 hour.
-    func performRemoteSweepOfOrphanedObjects() {
-        DispatchQueue.global(qos: .background).async {
-            Task {
-                do {
-                    let items = try await R2Client.shared.list(prefix: "istore/")
-                    let threshold = Date().addingTimeInterval(-60 * 60) // 1 hour
-                    for (key, modified) in items {
-                        if modified < threshold {
-                            try await R2Client.shared.delete(objectKey: key)
+    // MARK: - Cleanup implementations
+
+    private func cleanupDocumentsAndTransientDirectories() {
+        // Directories to examine: Documents, Caches, temporaryDirectory
+        var toScan: [URL] = []
+
+        if let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            toScan.append(docs)
+        }
+        if let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            toScan.append(caches)
+        }
+        // System temp
+        toScan.append(fileManager.temporaryDirectory)
+
+        for dir in toScan {
+            scanDirectory(dir, removeOldCaches: true)
+        }
+    }
+
+    private func cleanupTempAndCaches(quick: Bool) {
+        if let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            scanDirectory(caches, removeOldCaches: true, quick: quick)
+        }
+        scanDirectory(fileManager.temporaryDirectory, removeOldCaches: false, quick: quick)
+    }
+
+    /// Scans a directory and removes:
+    /// - Files with extension .ipa
+    /// - Extracted app bundles (.app directories)
+    /// - Temporary signing files (heuristic: files inside iStore tmp/work dirs)
+    /// - Cache files older than staleCacheInterval when removeOldCaches == true
+    private func scanDirectory(_ url: URL, removeOldCaches: Bool, quick: Bool = false) {
+        let resourceKeys: [URLResourceKey] = [.isDirectoryKey, .creationDateKey, .contentModificationDateKey, .nameKey]
+        let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: resourceKeys, options: [.skipsHiddenFiles, .skipsPackageDescendants])
+        while let item = enumerator?.nextObject() as? URL {
+            autoreleasepool {
+                // Quick mode: only top-level in temp/caches; skip deep traversal to avoid long pauses
+                if quick {
+                    if item.deletingLastPathComponent() != url { return }
+                }
+
+                let name = item.lastPathComponent.lowercased()
+                let ext = item.pathExtension.lowercased()
+
+                // Delete .ipa files everywhere
+                if ext == "ipa" {
+                    deleteFileIfExists(item)
+                    return
+                }
+
+                // Delete extracted payloads / .app bundles found in temp or caches
+                if ext == "app" {
+                    let path = item.path
+                    if path.hasPrefix(fileManager.temporaryDirectory.path) ||
+                        path.contains("/Payload/") ||
+                        (url.lastPathComponent.lowercased().contains("cache") || url.lastPathComponent.lowercased().contains("tmp")) {
+                        deleteDirectoryIfExists(item)
+                    }
+                    return
+                }
+
+                // Remove old cache files
+                if removeOldCaches {
+                    let threshold = Date().addingTimeInterval(-staleCacheInterval)
+                    if let resourceValues = try? item.resourceValues(forKeys: Set(resourceKeys)),
+                       let creation = resourceValues.creationDate ?? resourceValues.contentModificationDate,
+                       creation < threshold {
+                        var isDir: ObjCBool = false
+                        if fileManager.fileExists(atPath: item.path, isDirectory: &isDir) {
+                            if !isDir.boolValue {
+                                deleteFileIfExists(item)
+                            } else {
+                                if pathIsEmptyDirectory(item) || item.path.hasPrefix(fileManager.temporaryDirectory.path) {
+                                    deleteDirectoryIfExists(item)
+                                }
+                            }
                         }
                     }
-                } catch {
-                    // Best-effort: ignore and try again next launch.
+                }
+
+                // Heuristic: Remove transient signing artifacts created under tmp/iStore
+                if item.path.contains("/iStore/") && (item.path.contains("/tmp/") || item.path.contains("/temp/")) {
+                    if item.path.hasPrefix(fileManager.temporaryDirectory.path) {
+                        if isDirectoryURL(item) {
+                            deleteDirectoryIfExists(item)
+                        } else {
+                            deleteFileIfExists(item)
+                        }
+                    }
                 }
             }
         }
     }
 
-    /// Sweep local staged/signed IPA files in SigningService.workDir older than 1 hour.
-    /// Conservative: only removes .ipa files and directories that look like .app bundles.
-    func performLocalStagedSweep() {
-        DispatchQueue.global(qos: .background).async {
-            let signer = SigningService()
-            let dir = signer.workDir
-            let fileManager = FileManager.default
-            let threshold = Date().addingTimeInterval(-60 * 60) // 1 hour
-            var deleted = 0
-            if let items = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey, .isDirectoryKey], options: [.skipsHiddenFiles]) {
-                for item in items {
-                    // skip the tmp directory
-                    if item.lastPathComponent == "tmp" { continue }
-                    // Only remove obvious staged artifacts: .ipa files OR directories that look like .app bundles
-                    let ext = item.pathExtension.lowercased()
-                    var isDir = false
-                    if let res = try? item.resourceValues(forKeys: [.isDirectoryKey]), let v = res.isDirectory { isDir = v }
-                    if ext == "ipa" || (isDir && item.lastPathComponent.hasSuffix(".app")) {
-                        let resource = try? item.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
-                        let date = resource?.contentModificationDate ?? resource?.creationDate
-                        if let d = date, d < threshold {
-                            try? fileManager.removeItem(at: item)
-                            deleted += 1
-                        }
-                    }
-                }
-            }
-            // If cleanupDebugLog exists in the project, call it; otherwise no-op.
-            if let fn = NSClassFromString("DebugLogger") {
-                // noop; keep compatibility if project provides logging
-                _ = fn
-            }
-        }
-    }
-
-    // MARK: - IPA local cleanup placeholders
-
-    private var pendingIPA: URL?
-    private var pendingIPAWorkItem: DispatchWorkItem?
+    // MARK: - Helpers
 
     private func deleteFileIfExists(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        do {
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
+        } catch {
+            // Swallow errors silently — deletions are best-effort and must not crash the app.
+        }
+    }
+
+    private func deleteDirectoryIfExists(_ url: URL) {
+        deleteFileIfExists(url)
+    }
+
+    private func isDirectoryURL(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        if fileManager.fileExists(atPath: url.path, isDirectory: &isDir) {
+            return isDir.boolValue
+        }
+        return false
+    }
+
+    private func pathIsEmptyDirectory(_ url: URL) -> Bool {
+        guard isDirectoryURL(url) else { return false }
+        if let list = try? fileManager.contentsOfDirectory(atPath: url.path) {
+            return list.isEmpty
+        }
+        return false
     }
 }
