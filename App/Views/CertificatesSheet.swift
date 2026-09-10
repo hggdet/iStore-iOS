@@ -164,7 +164,7 @@ struct CertificatesSheet: View {
                 .fClearGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(cert.shortDisplayName)
+                Text(languageCode == AppLanguage.arabic.rawValue ? "الشهادة" : "Certificate")
                     .font(T.sans(16, .bold))
                     .foregroundColor(T.ink)
                     .lineLimit(1)

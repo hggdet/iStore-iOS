@@ -158,7 +158,7 @@ private struct ForgeRootView: View {
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                             .overlay {
                                 Image(systemName: "signature")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 10, weight: .semibold))
                             }
                     }
                     .id(tab == 1)

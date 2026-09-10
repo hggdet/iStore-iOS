@@ -15,7 +15,7 @@ struct CertificateRecord: Codable, Identifiable, Equatable {
     var displayName: String { commonName ?? filename }
 
     /// Compact label used by the iStore interface.
-    var shortDisplayName: String { "Apple Distribution" }
+    var shortDisplayName: String { "Certificate" }
 }
 
 /// Remembers imported signing certificates on-device (Application Support)

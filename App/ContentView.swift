@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var showSources = false
     @State private var showLibrary = false
     @State private var isCleaningFiles = false
+    @State private var isUpdatingSources = false
     @State private var cleanupMessage: String?
     @State private var showCleanupConfirmation = false
 
@@ -120,7 +121,7 @@ struct ContentView: View {
                                    version: $appVersion,
                                    password: $password,
                                    hasSavedPassword: certStore.selected.flatMap { certStore.savedPassword(for: $0) } != nil,
-                                   certificateName: certStore.selected?.shortDisplayName,
+                                   certificateName: certStore.selected == nil ? nil : localized("Certificate", "الشهادة"),
                                    profileName: profileStore.selected?.displayName,
                                    preflightState: preflightState,
                                    isSigning: signer.phase == .signing,
@@ -187,7 +188,7 @@ struct ContentView: View {
                     isPresented: $showCleanupConfirmation
                 ) {
                     Button(localized("Cancel", "إلغاء"), role: .cancel) {}
-                    Button(localized("Delete and Clean", "حذف وتنظيف"), role: .destructive) {
+                    Button(localized("Delete and Clean", "حذف وتنضيف"), role: .destructive) {
                         cleanFilesAndLibrary()
                     }
                 } message: {
@@ -317,7 +318,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(certStore.selected == nil
                          ? localized("Import Certificate", "استيراد شهادة")
-                         : "Apple Distribution")
+                         : localized("Certificate", "الشهادة"))
                         .font(T.sans(17, .bold))
                         .foregroundColor(T.isDark ? .white : T.ink)
                         .lineLimit(1)
@@ -532,13 +533,22 @@ struct ContentView: View {
             GlassSecondaryButton(
                 label: isCleaningFiles
                     ? localized("Cleaning…", "جارٍ التنظيف…")
-                    : localized("Clean Files & Library", "تنظيف الملفات والمكتبة"),
+                    : localized("Clean", "تنضيف"),
                 systemImage: isCleaningFiles ? "hourglass" : "trash.slash"
             ) {
                 guard !isCleaningFiles else { return }
                 showCleanupConfirmation = true
             }
-            .disabled(isCleaningFiles)
+            .disabled(isCleaningFiles || isUpdatingSources)
+            GlassSecondaryButton(
+                label: isUpdatingSources
+                    ? localized("Updating…", "جارٍ التحديث…")
+                    : localized("Update", "تحديث"),
+                systemImage: isUpdatingSources ? "hourglass" : "arrow.clockwise"
+            ) {
+                updateSources()
+            }
+            .disabled(isCleaningFiles || isUpdatingSources)
             if let cleanupMessage {
                 Text(cleanupMessage)
                     .font(T.mono(10))
@@ -561,7 +571,25 @@ struct ContentView: View {
         signer.phase = .idle
         CleanupManager.shared.cleanNow { [self] in
             isCleaningFiles = false
-            cleanupMessage = localized("Files and signed library cleaned.", "تم تنظيف الملفات ومكتبة التطبيقات الموقعة.")
+            cleanupMessage = localized("Files and signed library cleaned.", "تم تنضيف الملفات ومكتبة التطبيقات الموقعة.")
+        }
+    }
+
+    private func updateSources() {
+        guard !isUpdatingSources else { return }
+        isUpdatingSources = true
+        cleanupMessage = nil
+        Task { @MainActor in
+            let repositories = repoStore.repositories
+            await withTaskGroup(of: Void.self) { group in
+                for repository in repositories {
+                    group.addTask {
+                        await repoStore.refresh(repository)
+                    }
+                }
+            }
+            isUpdatingSources = false
+            cleanupMessage = localized("Apps updated.", "تم تحديث التطبيقات.")
         }
     }
 
@@ -647,7 +675,7 @@ struct ContentView: View {
                 if let cert = certStore.selected {
                     let expiry = P12Inspector.expiry(cert.notAfter, languageCode: languageCode)
                     GlassStatusPill(text: expiry.text, color: expiry.tone.color(in: T))
-                    Text(cert.shortDisplayName)
+                    Text(localized("Certificate", "الشهادة"))
                         .font(T.mono(12))
                         .foregroundColor(T.ink2)
                         .lineLimit(1)

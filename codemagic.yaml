@@ -18,16 +18,16 @@ workflows:
           rm -rf "$CM_BUILD_DIR/build" Payload iStore.ipa
           mkdir -p "$CM_BUILD_DIR/build"
           xcodebuild \
-            -project ForgeSignMobile.xcodeproj \
-            -scheme ForgeSignMobile \
+            -project iStore.xcodeproj \
+            -scheme iStore \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath "$CM_BUILD_DIR/build/ForgeSignMobile.xcarchive" \
+            -archivePath "$CM_BUILD_DIR/build/iStore.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
             DEVELOPMENT_TEAM='' \
             archive
     artifacts:
-      - $CM_BUILD_DIR/build/ForgeSignMobile.xcarchive/Products/Applications/iStore.app
+      - $CM_BUILD_DIR/build/iStore.xcarchive/Products/Applications/iStore.app
