@@ -144,6 +144,7 @@ private struct ForgeRootView: View {
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
+                    .id(tab == 0)
                 }
                 .tag(0)
 
@@ -160,6 +161,7 @@ private struct ForgeRootView: View {
                                     .font(.system(size: 8, weight: .semibold))
                             }
                     }
+                    .id(tab == 1)
                 }
                 .tag(1)
 
@@ -172,6 +174,7 @@ private struct ForgeRootView: View {
                             .scaleEffect(tab == 2 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
+                    .id(tab == 2)
                 }
                 .tag(2)
         }
