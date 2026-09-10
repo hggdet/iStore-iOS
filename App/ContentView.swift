@@ -1027,6 +1027,7 @@ struct ContentView: View {
                 try? FileManager.default.removeItem(at: preparedIPA)
             }
             await MainActor.run {
+                repoStore.removeDownloadedIPA(ipa)
                 let signedFileIsValid: Bool = {
                     guard result.ok,
                           FileManager.default.fileExists(atPath: output.path),
@@ -1085,6 +1086,10 @@ struct ContentView: View {
             history.setInstallState(.installing, for: recordID)
         }
         install.onDelivered = {
+            if let recordID,
+               let record = history.records.first(where: { $0.id == recordID }) {
+                history.delete(record)
+            }
             if let automaticInstallAppID {
                 repoStore.markInstalled(automaticInstallAppID)
                 repoStore.completeInstallAttempt(automaticInstallAppID)

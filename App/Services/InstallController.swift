@@ -58,12 +58,13 @@ final class InstallController: ObservableObject {
                     return
                 }
                 installServer = server
-                server.onIPADelivered = { [weak self] in
-                    Task { @MainActor in
-                        guard let self, self.installGeneration == generation else { return }
-                        self.installStatus = "IPA delivered. Installing… accept the iOS prompt if shown."
-                        InstallKeepAlive.shared.stop()
-                        self.onDelivered?()
+                    server.onIPADelivered = { [weak self] in
+                        Task { @MainActor in
+                            guard let self, self.installGeneration == generation else { return }
+                            CleanupManager.shared.markIPAForPostInstallDeletion(ipa)
+                            self.installStatus = "IPA delivered. Installing… accept the iOS prompt if shown."
+                            InstallKeepAlive.shared.stop()
+                            self.onDelivered?()
                     }
                 }
 

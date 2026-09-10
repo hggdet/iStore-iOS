@@ -390,6 +390,15 @@ final class RepositoryStore: ObservableObject {
         installWatchdogTask = nil
     }
 
+    /// Removes only IPAs downloaded by the repository flow. Files selected by
+    /// the user from another location are never touched.
+    func removeDownloadedIPA(_ url: URL) {
+        let downloadsPath = downloadsDir.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        guard filePath.hasPrefix(downloadsPath + "/") else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
     func markInstalled(_ appID: String) {
         installedAppIDs.insert(appID)
         UserDefaults.standard.set(Array(installedAppIDs), forKey: "istore.installed-app-ids")

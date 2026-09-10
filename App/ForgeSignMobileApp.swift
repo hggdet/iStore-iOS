@@ -10,6 +10,7 @@ final class ForgeApplicationDelegate: NSObject, UIApplicationDelegate {
             pendingShortcutURL = socialURL(for: shortcut.type)
         }
         configureQuickActions(application)
+        CleanupManager.shared.performLaunchCleanup()
         return true
     }
 
@@ -32,6 +33,8 @@ final class ForgeApplicationDelegate: NSObject, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        CleanupManager.shared.performResumeCleanup()
+        CleanupManager.shared.checkPendingIPADeletionOnActivation()
         guard let url = pendingShortcutURL else { return }
         pendingShortcutURL = nil
         openSocialURL(url, using: application)
