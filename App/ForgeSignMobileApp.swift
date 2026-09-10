@@ -154,7 +154,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: "checkmark.seal")
+                        Image(systemName: "square.and.pencil")
                             .symbolVariant(tab == 1 ? .fill : .none)
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
