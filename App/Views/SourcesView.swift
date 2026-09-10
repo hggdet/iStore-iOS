@@ -13,6 +13,8 @@ struct SourcesView: View {
     @State private var newRepoURL = ""
     @State private var addError: String?
     @State private var selectedRepo: Repository?
+    @State private var repoPendingDeletion: Repository?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -39,6 +41,22 @@ struct SourcesView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .sheet(item: $selectedRepo) { repo in
                     RepoDetailSheet(repo: repo)
+                }
+                .alert(
+                    "Delete source?",
+                    isPresented: $showDeleteConfirmation
+                ) {
+                    Button("Cancel", role: .cancel) {
+                        repoPendingDeletion = nil
+                    }
+                    Button("Delete", role: .destructive) {
+                        if let repoPendingDeletion {
+                            store.remove(repoPendingDeletion)
+                        }
+                        self.repoPendingDeletion = nil
+                    }
+                } message: {
+                    Text("This source and its cached apps will be removed from the store.")
                 }
             }
         }
@@ -135,7 +153,8 @@ struct SourcesView: View {
             .buttonStyle(GlassTactileButtonStyle())
 
             Button {
-                store.remove(repo)
+                repoPendingDeletion = repo
+                showDeleteConfirmation = true
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "trash")
@@ -146,7 +165,7 @@ struct SourcesView: View {
                         .minimumScaleFactor(0.75)
                 }
                 .foregroundColor(T.bad)
-                .frame(width: 64, height: 30)
+                .frame(width: 82, height: 36)
                 .fClearGlass(in: Capsule(), interactive: true)
             }
             .buttonStyle(GlassTactileButtonStyle())
