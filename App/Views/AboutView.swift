@@ -137,9 +137,11 @@ struct AboutView: View {
             HStack(spacing: 8) {
                 if let brandAsset {
                     Image(brandAsset)
+                        .renderingMode(.template)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 18, height: 18)
+                        .foregroundColor(T.isDark ? .white : .black)
                 } else if let icon {
                     Image(systemName: icon)
                         .font(.system(size: 15, weight: .semibold))
