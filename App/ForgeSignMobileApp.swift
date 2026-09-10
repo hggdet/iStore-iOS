@@ -140,7 +140,8 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Apps")
                     } icon: {
-                        Image(systemName: tab == 0 ? "square.grid.2x2.fill" : "square.grid.2x2")
+                        Image(systemName: "square.grid.2x2")
+                            .symbolVariant(tab == 0 ? .fill : .none)
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
@@ -153,8 +154,8 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: "signature")
-                            .font(.system(size: 17, weight: tab == 1 ? .bold : .regular))
+                        Image(systemName: "checkmark.seal")
+                            .symbolVariant(tab == 1 ? .fill : .none)
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
@@ -167,7 +168,8 @@ private struct ForgeRootView: View {
                     Label {
                         Text("About")
                     } icon: {
-                        Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                        Image(systemName: "person.crop.circle")
+                            .symbolVariant(tab == 2 ? .fill : .none)
                             .scaleEffect(tab == 2 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
