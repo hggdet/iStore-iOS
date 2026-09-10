@@ -136,13 +136,13 @@ private struct ForgeRootView: View {
 
             ContentView()
                 .tabItem {
-                    Label("Sign", systemImage: tab == 1 ? "seal.fill" : "seal")
+                    Label("Sign", systemImage: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
                 }
                 .tag(1)
 
             AboutView()
                 .tabItem {
-                    Label("About", systemImage: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                    Label("About", systemImage: tab == 2 ? "questionmark.circle.fill" : "questionmark.circle")
                 }
                 .tag(2)
         }
