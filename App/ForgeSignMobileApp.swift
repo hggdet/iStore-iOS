@@ -136,7 +136,15 @@ private struct ForgeRootView: View {
 
             ContentView()
                 .tabItem {
-                    Label("Sign", systemImage: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
+                    Label {
+                        Text("Sign")
+                    } icon: {
+                        Image(systemName: tab == 1 ? "circle.fill" : "circle")
+                            .overlay {
+                                Image(systemName: "signature")
+                                    .font(.system(size: 8, weight: .semibold))
+                            }
+                    }
                 }
                 .tag(1)
 
