@@ -140,10 +140,10 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Apps")
                     } icon: {
-                        Image(systemName: "square.grid.2x2")
-                            .symbolVariant(tab == 0 ? .fill : .none)
+                        Image(systemName: tab == 0 ? "square.grid.2x2.fill" : "square.grid.2x2")
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
+                            .id("apps-tab-icon-\(tab)")
                     }
                     .id(tab == 0)
                 }
@@ -154,10 +154,10 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: "square.and.pencil")
-                            .symbolVariant(tab == 1 ? .fill : .none)
+                        Image(systemName: tab == 1 ? "square.and.pencil" : "pencil")
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
+                            .id("sign-tab-icon-\(tab)")
                     }
                     .id(tab == 1)
                 }
@@ -168,10 +168,10 @@ private struct ForgeRootView: View {
                     Label {
                         Text("About")
                     } icon: {
-                        Image(systemName: "person.crop.circle")
-                            .symbolVariant(tab == 2 ? .fill : .none)
+                        Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
                             .scaleEffect(tab == 2 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
+                            .id("about-tab-icon-\(tab)")
                     }
                     .id(tab == 2)
                 }
