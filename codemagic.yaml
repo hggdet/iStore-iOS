@@ -9,6 +9,9 @@ workflows:
       - name: Install XcodeGen
         script: |
           brew install xcodegen
+      - name: Generate R2 configuration
+        script: |
+          ./scripts/generate-r2-config.sh
       - name: Generate Xcode project
         script: |
           xcodegen generate
