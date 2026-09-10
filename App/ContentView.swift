@@ -25,7 +25,7 @@ struct ContentView: View {
     @State private var preflightState: IPAPreflightState = .idle
     @State private var signedIPA: URL?
     @State private var signedBundleId = ""
-    @State private var signedVersion = "1.1"
+    @State private var signedVersion = "1.2"
     @State private var lastRecordID: UUID?
     @State private var automaticInstallAppID: String?
     @State private var automaticInstallAsAdditionalCopy = false
