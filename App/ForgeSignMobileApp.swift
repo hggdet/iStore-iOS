@@ -140,7 +140,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Apps")
                     } icon: {
-                        Image(systemName: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
+                        Image(systemName: tab == 0 ? "square.grid.2x2.fill" : "square.grid.2x2")
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
@@ -153,7 +153,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: tab == 1 ? "circle.fill" : "circle")
+                        Image(systemName: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                             .overlay {
