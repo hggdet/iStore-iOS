@@ -127,10 +127,23 @@ private struct ForgeRootView: View {
     private var theme: ForgeTheme { colorScheme == .dark ? .dark : .light }
 
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: Binding(
+            get: { tab },
+            set: { newValue in
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.68)) {
+                    tab = newValue
+                }
+            }
+        )) {
             AppsView()
                 .tabItem {
-                    Label("Apps", systemImage: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
+                    Label {
+                        Text("Apps")
+                    } icon: {
+                        Image(systemName: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
+                            .scaleEffect(tab == 0 ? 1.1 : 1.0)
+                            .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
+                    }
                 }
                 .tag(0)
 
@@ -140,6 +153,8 @@ private struct ForgeRootView: View {
                         Text("Sign")
                     } icon: {
                         Image(systemName: tab == 1 ? "circle.fill" : "circle")
+                            .scaleEffect(tab == 1 ? 1.1 : 1.0)
+                            .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                             .overlay {
                                 Image(systemName: "signature")
                                     .font(.system(size: 8, weight: .semibold))
@@ -150,7 +165,13 @@ private struct ForgeRootView: View {
 
             AboutView()
                 .tabItem {
-                    Label("About", systemImage: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                    Label {
+                        Text("About")
+                    } icon: {
+                        Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                            .scaleEffect(tab == 2 ? 1.1 : 1.0)
+                            .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
+                    }
                 }
                 .tag(2)
         }
