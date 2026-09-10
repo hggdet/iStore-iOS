@@ -196,6 +196,7 @@ final class RepositoryStore: ObservableObject {
     /// Source apps that have reached the iOS installer. The UI verifies this
     /// state when Open is tapped and clears it if iOS cannot open the app.
     @Published private(set) var installedAppIDs: Set<String>
+    @Published private(set) var installedVersions: [String: String]
     @Published var pendingAppID: String?
     @Published var pendingAppName: String?
     /// True only when the user explicitly requested a separately signed copy.
@@ -220,6 +221,7 @@ final class RepositoryStore: ObservableObject {
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         installedAppIDs = Set(UserDefaults.standard.stringArray(forKey: "istore.installed-app-ids") ?? [])
+        installedVersions = UserDefaults.standard.dictionary(forKey: "istore.installed-app-versions") as? [String: String] ?? [:]
         load()
         seedDefaultRepositories()
         Task { @MainActor [weak self] in
@@ -399,14 +401,39 @@ final class RepositoryStore: ObservableObject {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func markInstalled(_ appID: String) {
+    func markInstalled(_ appID: String, version: String? = nil) {
         installedAppIDs.insert(appID)
+        if let version, !version.isEmpty {
+            installedVersions[appID] = version
+        }
         UserDefaults.standard.set(Array(installedAppIDs), forKey: "istore.installed-app-ids")
+        UserDefaults.standard.set(installedVersions, forKey: "istore.installed-app-versions")
     }
 
     func clearInstalled(_ appID: String) {
         installedAppIDs.remove(appID)
+        installedVersions.removeValue(forKey: appID)
         UserDefaults.standard.set(Array(installedAppIDs), forKey: "istore.installed-app-ids")
+        UserDefaults.standard.set(installedVersions, forKey: "istore.installed-app-versions")
+    }
+
+    func isUpdateAvailable(for app: RepoApp) -> Bool {
+        guard installedAppIDs.contains(app.id),
+              let installed = installedVersions[app.id],
+              let latest = app.version,
+              !installed.isEmpty, !latest.isEmpty else { return false }
+        return compareVersions(latest, installed) == .orderedDescending
+    }
+
+    private func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        let left = lhs.split(separator: ".").map { Int($0.filter("0123456789".contains)) ?? 0 }
+        let right = rhs.split(separator: ".").map { Int($0.filter("0123456789".contains)) ?? 0 }
+        for index in 0..<max(left.count, right.count) {
+            let a = index < left.count ? left[index] : 0
+            let b = index < right.count ? right[index] : 0
+            if a != b { return a < b ? .orderedAscending : .orderedDescending }
+        }
+        return .orderedSame
     }
 
     func download(_ app: RepoApp, asAdditionalCopy: Bool = false) async {

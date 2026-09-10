@@ -42,6 +42,7 @@ struct ContentView: View {
     @State private var showShare = false
     @State private var showSources = false
     @State private var showLibrary = false
+    @State private var showUpdates = false
     @State private var isCleaningFiles = false
     @State private var isUpdatingSources = false
     @State private var cleanupMessage: String?
@@ -161,6 +162,10 @@ struct ContentView: View {
                                         version: record.version)
                     }
                     .liquidGlassSheet()
+                }
+                .sheet(isPresented: $showUpdates) {
+                    UpdatesSheet()
+                        .liquidGlassSheet()
                 }
                 .onChange(of: install.installStatus, perform: { status in
                     if status.hasPrefix("Install failed") {
@@ -543,9 +548,10 @@ struct ContentView: View {
             GlassSecondaryButton(
                 label: isUpdatingSources
                     ? localized("Updating…", "جارٍ التحديث…")
-                    : localized("Update", "تحديث"),
+                    : localized("Updates", "التحديثات"),
                 systemImage: isUpdatingSources ? "hourglass" : "arrow.clockwise"
             ) {
+                showUpdates = true
                 updateSources()
             }
             .disabled(isCleaningFiles || isUpdatingSources)
@@ -1171,7 +1177,7 @@ struct ContentView: View {
                 history.delete(record)
             }
             if let automaticInstallAppID {
-                repoStore.markInstalled(automaticInstallAppID)
+                repoStore.markInstalled(automaticInstallAppID, version: signedVersion)
                 repoStore.completeInstallAttempt(automaticInstallAppID)
                 self.automaticInstallAppID = nil
                 self.automaticInstallAsAdditionalCopy = false
