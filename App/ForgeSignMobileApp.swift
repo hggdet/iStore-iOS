@@ -130,7 +130,7 @@ private struct ForgeRootView: View {
         TabView(selection: $tab) {
             AppsView()
                 .tabItem {
-                    Label("Apps", systemImage: tab == 0 ? "circle.hexagongrid.fill" : "circle.hexagongrid")
+                    Label("Apps", systemImage: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
                 }
                 .tag(0)
 
@@ -142,7 +142,7 @@ private struct ForgeRootView: View {
 
             AboutView()
                 .tabItem {
-                    Label("About", systemImage: tab == 2 ? "questionmark.circle.fill" : "questionmark.circle")
+                    Label("About", systemImage: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
                 }
                 .tag(2)
         }
