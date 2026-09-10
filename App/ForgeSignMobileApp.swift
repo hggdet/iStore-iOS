@@ -1,6 +1,39 @@
 import SwiftUI
 import UIKit
 
+private enum TabIconImage {
+    static func make(inner: String, selected: Bool) -> UIImage {
+        let size = CGSize(width: 28, height: 28)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            let rect = CGRect(origin: .zero, size: size)
+            let color = UIColor.label
+            let outer = rect.insetBy(dx: 2.5, dy: 2.5)
+
+            if selected {
+                color.setFill()
+                UIBezierPath(ovalIn: outer).fill()
+            } else {
+                color.setStroke()
+                let path = UIBezierPath(ovalIn: outer)
+                path.lineWidth = 1.8
+                path.stroke()
+            }
+
+            guard let symbol = UIImage(systemName: inner) else { return }
+            let symbolSize = CGSize(width: 12, height: 12)
+            let symbolRect = CGRect(
+                x: (size.width - symbolSize.width) / 2,
+                y: (size.height - symbolSize.height) / 2,
+                width: symbolSize.width,
+                height: symbolSize.height
+            )
+            symbol.withTintColor(selected ? .systemBackground : color, renderingMode: .alwaysOriginal)
+                .draw(in: symbolRect)
+        }.withRenderingMode(.alwaysTemplate)
+    }
+}
+
 final class ForgeApplicationDelegate: NSObject, UIApplicationDelegate {
     private var pendingShortcutURL: URL?
 
@@ -140,7 +173,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Apps")
                     } icon: {
-                        Image(systemName: tab == 0 ? "circle.grid.2x2.fill" : "circle.grid.2x2")
+                        Image(uiImage: TabIconImage.make(inner: "square.stack.3d.up", selected: tab == 0))
                             .scaleEffect(tab == 0 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
@@ -153,7 +186,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("Sign")
                     } icon: {
-                        Image(systemName: tab == 1 ? "pencil.circle.fill" : "pencil.circle")
+                        Image(uiImage: TabIconImage.make(inner: "signature", selected: tab == 1))
                             .scaleEffect(tab == 1 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
@@ -166,7 +199,7 @@ private struct ForgeRootView: View {
                     Label {
                         Text("About")
                     } icon: {
-                        Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                        Image(uiImage: TabIconImage.make(inner: "person.fill", selected: tab == 2))
                             .scaleEffect(tab == 2 ? 1.1 : 1.0)
                             .animation(.spring(response: 0.32, dampingFraction: 0.68), value: tab)
                     }
