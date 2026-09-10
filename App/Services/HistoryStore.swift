@@ -75,6 +75,22 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    /// Deletes every signed IPA and clears the library index.
+    /// Certificates, profiles, sources, and preferences are stored elsewhere.
+    func deleteAllSignedApps() {
+        if let items = try? FileManager.default.contentsOfDirectory(
+            at: signedDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            for item in items {
+                try? FileManager.default.removeItem(at: item)
+            }
+        }
+        records.removeAll()
+        save()
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: indexURL),
               let stored = try? JSONDecoder().decode([SigningRecord].self, from: data) else { return }

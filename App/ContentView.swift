@@ -44,6 +44,7 @@ struct ContentView: View {
     @State private var showLibrary = false
     @State private var isCleaningFiles = false
     @State private var cleanupMessage: String?
+    @State private var showCleanupConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -180,6 +181,20 @@ struct ContentView: View {
                     Task {
                         await receiveDownloadedRepositoryIPA(pendingIPA)
                     }
+                }
+                .alert(
+                    localized("Delete signed library?", "حذف مكتبة التطبيقات الموقعة؟"),
+                    isPresented: $showCleanupConfirmation
+                ) {
+                    Button(localized("Cancel", "إلغاء"), role: .cancel) {}
+                    Button(localized("Delete and Clean", "حذف وتنظيف"), role: .destructive) {
+                        cleanFilesAndLibrary()
+                    }
+                } message: {
+                    Text(localized(
+                        "This removes signed IPA files and their library records. Certificates, profiles, and sources stay safe.",
+                        "سيتم حذف ملفات IPA الموقعة وسجلات المكتبة. الشهادات وملفات الحماية والمصادر لن تتأثر."
+                    ))
                 }
             }
         }
@@ -517,16 +532,11 @@ struct ContentView: View {
             GlassSecondaryButton(
                 label: isCleaningFiles
                     ? localized("Cleaning…", "جارٍ التنظيف…")
-                    : localized("Clean Temporary Files", "تنظيف الملفات المؤقتة"),
+                    : localized("Clean Files & Library", "تنظيف الملفات والمكتبة"),
                 systemImage: isCleaningFiles ? "hourglass" : "trash.slash"
             ) {
                 guard !isCleaningFiles else { return }
-                isCleaningFiles = true
-                cleanupMessage = nil
-                CleanupManager.shared.cleanNow { [self] in
-                    isCleaningFiles = false
-                    cleanupMessage = localized("Temporary files cleaned.", "تم تنظيف الملفات المؤقتة.")
-                }
+                showCleanupConfirmation = true
             }
             .disabled(isCleaningFiles)
             if let cleanupMessage {
@@ -539,6 +549,20 @@ struct ContentView: View {
         }
         .padding(.horizontal, T.pad)
         .padding(.top, 14)
+    }
+
+    private func cleanFilesAndLibrary() {
+        isCleaningFiles = true
+        cleanupMessage = nil
+        history.deleteAllSignedApps()
+        signedIPA = nil
+        signedBundleId = ""
+        lastRecordID = nil
+        signer.phase = .idle
+        CleanupManager.shared.cleanNow { [self] in
+            isCleaningFiles = false
+            cleanupMessage = localized("Files and signed library cleaned.", "تم تنظيف الملفات ومكتبة التطبيقات الموقعة.")
+        }
     }
 
     @ViewBuilder
