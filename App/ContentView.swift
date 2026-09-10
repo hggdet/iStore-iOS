@@ -317,7 +317,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(certStore.selected == nil
                          ? localized("Import Certificate", "استيراد شهادة")
-                         : localized("Apple Distribution", "شهادة التوزيع"))
+                         : localized("Certificate", "الشهادة"))
                         .font(T.sans(17, .bold))
                         .foregroundColor(T.isDark ? .white : T.ink)
                         .lineLimit(1)
@@ -639,13 +639,13 @@ struct ContentView: View {
                     .foregroundColor(T.accent2)
                     .frame(width: 40, height: 40)
                     .fClearGlass(in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                Text(localized("Certificate (.p12)", "الشهادة (.p12)"))
+                Text(localized("Certificate", "الشهادة"))
                     .font(T.sans(15, .medium))
                     .foregroundColor(T.ink)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if let cert = certStore.selected {
-                    let expiry = P12Inspector.expiry(cert.notAfter)
+                    let expiry = P12Inspector.expiry(cert.notAfter, languageCode: languageCode)
                     GlassStatusPill(text: expiry.text, color: expiry.tone.color(in: T))
                     Text(cert.shortDisplayName)
                         .font(T.mono(12))
@@ -682,7 +682,7 @@ struct ContentView: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if let profile = profileStore.selected {
-                    let expiry = P12Inspector.expiry(profile.notAfter)
+                    let expiry = P12Inspector.expiry(profile.notAfter, languageCode: languageCode)
                     GlassStatusPill(text: expiry.text, color: expiry.tone.color(in: T))
                     Text(profile.displayName)
                         .font(T.mono(12))
@@ -930,7 +930,11 @@ struct ContentView: View {
     }
 
     private var canSign: Bool {
-        ipaURL != nil && certStore.selected != nil && profileStore.selected != nil && effectivePassword != nil
+        ipaURL != nil &&
+        certStore.selected != nil &&
+        profileStore.selected != nil &&
+        effectivePassword != nil &&
+        isSigningConfigurationValid
     }
 
     private func autoSignDownloadedIPAWhenReady() async {

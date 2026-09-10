@@ -48,7 +48,7 @@ struct CertificatesSheet: View {
                             }
                         }
 
-                        GlassSecondaryButton(label: localized("P12 Certificate", "شهادة P12"), systemImage: "key.fill") {
+                        GlassSecondaryButton(label: localized("Certificate", "الشهادة"), systemImage: "key.fill") {
                             importMode = .p12
                             DispatchQueue.main.async {
                                 showImporter = true
@@ -153,9 +153,8 @@ struct CertificatesSheet: View {
         .padding(.top, 24)
     }
 
-        private func row(_ cert: CertificateRecord) -> some View {
-        let isSelected = cert.id == store.selectedID
-        let expiry = P12Inspector.expiry(cert.notAfter)
+    private func row(_ cert: CertificateRecord) -> some View {
+        let expiry = P12Inspector.expiry(cert.notAfter, languageCode: languageCode)
 
         return HStack(spacing: 12) {
             Image(systemName: "key.fill")
@@ -188,9 +187,6 @@ struct CertificatesSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(isSelected ? T.accent : T.ink4)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

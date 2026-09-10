@@ -108,6 +108,22 @@ enum P12Inspector {
         let days = Int((interval / 86_400).rounded(.up))
         return ("\(days)d left", days <= 30 ? .warn : .good)
     }
+
+    static func expiry(_ notAfter: Date?, languageCode: String) -> (text: String, tone: ExpiryTone) {
+        guard languageCode == AppLanguage.arabic.rawValue else { return expiry(notAfter) }
+        guard let notAfter else { return ("لا يوجد تاريخ انتهاء", .warn) }
+        let interval = notAfter.timeIntervalSinceNow
+        if interval <= 0 {
+            let days = Int(-interval / 86_400)
+            return (days < 1 ? "منتهية" : "منتهية منذ \(days) يوم", .bad)
+        }
+        if interval < 3_600 * 24 {
+            let hours = max(1, Int(interval / 3_600))
+            return ("متبقي \(hours) ساعة", .warn)
+        }
+        let days = Int((interval / 86_400).rounded(.up))
+        return ("متبقي \(days) يوم", days <= 30 ? .warn : .good)
+    }
 }
 
 /// Minimal DER walker extracting validity dates and subject CN / O / OU
