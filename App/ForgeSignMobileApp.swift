@@ -129,7 +129,9 @@ private struct ForgeRootView: View {
     var body: some View {
         TabView(selection: $tab) {
             AppsView()
-                .tabItem { Label("Apps", systemImage: "circle.hexagongrid.fill") }
+                .tabItem {
+                    Label("Apps", systemImage: tab == 0 ? "circle.hexagongrid.fill" : "circle.hexagongrid")
+                }
                 .tag(0)
 
             ContentView()
