@@ -1,25 +1,109 @@
-*** Begin Patch
-*** Update File: README.md
-@@
- ## البناء من المصدر
-@@
- open ForgeSignMobile.xcodeproj
- ```
- 
- افتح المشروع في Xcode وابنِ Scheme باسم `ForgeSignMobile`. اسم التطبيق الناتج للمستخدم هو **iStore**. إعدادات التوقيع داخل الم�[...]
-+
-+## Cloudflare R2 (optional) — upload/install flow
-+
-+iStore can upload signed IPAs to Cloudflare R2 and use a time-limited presigned URL in the install manifest.
-+
-+- Create a Cloudflare R2 bucket.
-+- Create S3-compatible API keys (Access Key ID and Secret Access Key) in Cloudflare.
-+- Your R2 endpoint typically looks like: https://<account>.r2.cloudflarestorage.com
-+- Copy `App/Config.example.swift` → `App/Config.swift` and fill:
-+  - endpoint = `"https://<account>.r2.cloudflarestorage.com"`
-+  - accessKeyId = `"<your access key id>"`
-+  - secretAccessKey = `"<your secret>"`
-+  - bucket = `"<your bucket name>"`
-+  - region = `"auto"`
-+- Build and run on a real iOS device (itms-services installation only works on device). The app uploads the signed IPA to R2, generates a presigned (time-limited) GET URL for the manifest `fetchurl`, hands off to iOS via `itms-services`, and removes the uploaded object automatically after install or after the configured fallback timeout.
-*** End Patch
+# iStore
+
+تطبيق iOS لإدارة مصادر التطبيقات، تنزيل ملفات IPA، توقيعها محليًا، وتسليمها للتثبيت على الجهاز. يحتوي التطبيق على واجهة SwiftUI، وخدمة توقيع مبنية على `zsign`، ودعم مصادر التطبيقات بصيغة AltStore JSON.
+
+## المزايا الرئيسية
+
+يوفر iStore إضافة مصادر التطبيقات وتحديثها، تصفح التطبيقات وتنزيلها، توقيع ملفات IPA باستخدام الشهادة وملف الحماية، حفظ سجل التطبيقات الموقعة، وتنظيف الملفات المؤقتة وملفات IPA التي أنشأها التطبيق. كما يتضمن شاشة لتحديث التطبيقات التي تم تنزيلها من المتجر، ويعرض النسخ الجديدة عند توفرها.
+
+## متطلبات البناء
+
+يتطلب المشروع بيئة macOS تحتوي على:
+
+- Xcode متوافق مع iOS 16.4 أو أحدث.
+- XcodeGen لإنشاء ملف المشروع من `project.yml`.
+- جهاز iOS حقيقي لتجربة التوقيع والتثبيت الفعلي.
+
+المشروع يستهدف iOS 16.4 أو أحدث، ويستخدم Swift 6.0.
+
+## إنشاء مشروع Xcode
+
+من داخل مجلد المشروع شغّل:
+
+```bash
+xcodegen generate
+```
+
+سيتم إنشاء ملف `iStore.xcodeproj` من إعدادات `project.yml`.
+
+## البناء والتشغيل
+
+افتح المشروع:
+
+```bash
+open iStore.xcodeproj
+```
+
+بعد ذلك اختر Scheme باسم `iStore` وابنِ التطبيق على جهاز iOS حقيقي. يحتاج التطبيق إلى إعدادات توقيع Apple المناسبة حتى يعمل تثبيت التطبيقات الموقعة.
+
+يوجد Target إضافي باسم `iStoreUISim` لمعاينة واجهة SwiftUI على المحاكي. هذا الـ Target مخصص للواجهة والشبكات، ولا يشمل جسر `zsign` والتوقيع الفعلي.
+
+## إعداد الشهادة وملف الحماية
+
+من داخل التطبيق أضف شهادة التوزيع وملف الحماية، ثم أدخل كلمة مرور ملف P12 عند طلبها. تُحفظ الملفات داخل مساحة التطبيق المحلية، ولا تُضاف إلى Git.
+
+يجب عدم رفع الشهادات أو ملفات P12 أو كلمات المرور أو ملفات الحماية الخاصة إلى المستودع.
+
+## مصادر التطبيقات
+
+يمكن إضافة مصدر تطبيقات متوافق مع AltStore JSON من شاشة المصادر داخل التطبيق. بعد إضافة المصدر، يستطيع iStore تحميل قائمة التطبيقات وتخزين آخر نسخة محليًا، ثم عرض الكاش مباشرة عند فتح المتجر وتحديثه من الإنترنت في الخلفية.
+
+يجب أن يحتوي مصدر التطبيق على معلومات أساسية مثل اسم التطبيق، المعرّف، رقم الإصدار، ورابط تنزيل IPA صالح.
+
+## نظام التحديث
+
+يسجل iStore التطبيقات التي تم تنزيلها من المتجر مع رقم الإصدار المستخدم. عند فتح شاشة التحديثات، يحدّث المصادر ويقارن النسخة المثبتة بالنسخة المتوفرة في المصدر. يظهر زر التحديث فقط عندما تكون نسخة المصدر أحدث من النسخة المسجلة محليًا.
+
+التطبيقات التي تم تثبيتها قبل إضافة حفظ أرقام الإصدارات قد تحتاج إلى تنزيلها أو تثبيتها مرة أخرى حتى يبدأ iStore بتتبع تحديثاتها.
+
+## Cloudflare R2 اختياريًا
+
+يمكن استخدام Cloudflare R2 لتخزين ملفات IPA الموقعة وإنشاء روابط تنزيل مؤقتة. هذه الميزة اختيارية ولا يحتاجها تشغيل المتجر المحلي الأساسي.
+
+لإعدادها:
+
+1. أنشئ Bucket في Cloudflare R2.
+2. أنشئ مفاتيح API متوافقة مع S3.
+3. انسخ ملف الإعداد النموذجي:
+
+   ```bash
+   cp App/Config.example.swift App/Config.swift
+   ```
+
+4. املأ إعدادات endpoint وAccess Key وSecret Key واسم الـ Bucket.
+5. لا ترفع `App/Config.swift` إلى Git.
+
+يجب تشغيل تدفق التثبيت عبر جهاز iOS حقيقي، لأن روابط `itms-services` لا تعمل كتثبيت فعلي على المحاكي.
+
+## البناء عبر Codemagic
+
+يحتوي `codemagic.yaml` على Workflow باسم `iStore` لبناء نسخة unsigned من التطبيق. يستخدم الـ Workflow المشروع `iStore.xcodeproj` والـ Scheme `iStore`.
+
+لإنتاج نسخة قابلة للتثبيت أو التوزيع، يجب إعداد شهادات وملفات توقيع مناسبة داخل Codemagic وفق حساب Apple Developer المستخدم.
+
+## هيكل المشروع
+
+| المسار | الوظيفة |
+|---|---|
+| `App/` | واجهة SwiftUI والخدمات والنماذج وموارد التطبيق |
+| `App/Services/` | التوقيع، المصادر، التثبيت، الشهادات، والسجل المحلي |
+| `App/Views/` | شاشات المتجر، التحديثات، الشهادات، والمكتبة |
+| `Bridge/` | جسر Swift/C++ مع zsign |
+| `vendor/` | مكتبات zsign وOpenSSL المضمنة |
+| `Info.plist` | إعدادات حزمة iOS |
+| `project.yml` | إعدادات XcodeGen وأهداف البناء |
+| `codemagic.yaml` | إعدادات البناء على Codemagic |
+
+## الأمان
+
+لا تضع مفاتيح Cloudflare أو كلمات مرور P12 أو الشهادات الخاصة داخل Git. استخدم ملفات إعداد محلية غير متتبعة أو متغيرات أسرار في خدمة البناء.
+
+## الترخيص
+
+راجع ملف الترخيص في المستودع، إن وجد، قبل إعادة توزيع التطبيق أو مكوناته المضمنة.
+
+## References
+
+[1]: https://github.com/hggdet/iStore-iOS "iStore source repository"
+[2]: https://developer.apple.com/documentation/swiftui "Apple SwiftUI documentation"
+[3]: https://github.com/fastlane/fastlane "Fastlane and iOS build ecosystem"
